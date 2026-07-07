@@ -18,6 +18,12 @@ const WIKIMEDIA_SEARCH_API_URL =
 const VAYEHEE_FAVICON_URL =
   "https://vayehee.com/wp-content/uploads/2021/11/cropped-cropped-logo-small-1-32x32.png";
 
+type NavigatorWithVirtualKeyboard = Navigator & {
+  virtualKeyboard?: {
+    overlaysContent: boolean;
+  };
+};
+
 type Suggestion = {
   description: string;
   faviconUrl: string;
@@ -121,6 +127,14 @@ function App() {
   const showCreateSuggestion =
     suggestions.length > 0 && validation.status !== "valid" && Boolean(searchTerm) && !hasExactSuggestion;
   const hasSearchValue = articleUrl.length > 0;
+
+  useEffect(() => {
+    const virtualKeyboard = (navigator as NavigatorWithVirtualKeyboard).virtualKeyboard;
+
+    if (virtualKeyboard) {
+      virtualKeyboard.overlaysContent = true;
+    }
+  }, []);
 
   useEffect(() => {
     function updatePortraitPadding() {
@@ -294,8 +308,10 @@ function App() {
               <input
                 aria-label="Wikipedia article URL"
                 className="url-input"
+                enterKeyHint="search"
+                inputMode="search"
                 placeholder="Search or paste Wikipedia article URL..."
-                type="text"
+                type="search"
                 value={articleUrl}
                 onChange={(event) => {
                   setSelectedSuggestionUrl("");
