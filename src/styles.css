@@ -494,20 +494,10 @@ body {
 
 @media (orientation: portrait) and (max-width: 535.98px) {
   .brand {
-    width: calc(100vw - 32px);
+    width: max(288px, calc(100vw - 32px));
   }
 
   .brand-text {
-    font-size: calc(20.97vw - 6.71px);
-  }
-}
-
-@media (orientation: portrait) and (max-width: 319.98px) {
-  .brand {
-    width: 288px;
-  }
-
-  .brand-text {
-    font-size: 60.4px;
+    font-size: max(60.4px, calc(20.97vw - 6.71px));
   }
 }
