@@ -139,10 +139,14 @@ function App() {
       </header>
 
       <main className="search-shell" aria-labelledby="page-title">
-        <h1 id="page-title" className="brand">
-          <span className="brand-text">Weakipedia</span>
-          <span className="brand-byline">by Vayehee</span>
-        </h1>
+        <div className="brand">
+          <div id="page-title" className="brand-text" role="heading" aria-level={1}>
+            Weakipedia
+          </div>
+          <div className="brand-byline-layer" aria-hidden="true">
+            <div className="brand-byline">by Vayehee</div>
+          </div>
+        </div>
         <p className="tagline">
           In the age of AI,{" "}
           <span className="wiki-wordmark" aria-label="Wikipedia">
