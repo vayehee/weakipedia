@@ -134,7 +134,9 @@ body {
 .tagline strong {
   color: inherit;
   font-family: "Linux Libertine", Georgia, "Times New Roman", serif;
-  font-weight: 700;
+  font-weight: 900;
+  text-shadow: 0 0 0 currentColor;
+  -webkit-text-stroke: 0.35px currentColor;
 }
 
 .search-form {
