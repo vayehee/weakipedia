@@ -145,9 +145,9 @@ function App() {
         <p className="tagline">
           In the age of AI,{" "}
           <span className="wiki-wordmark" aria-label="Wikipedia">
-            <span>W</span>
+            <span className="wiki-wordmark-tall">W</span>
             <span>I</span>
-            <span className="wiki-wordmark-tall">K</span>
+            <span>K</span>
             <span>I</span>
             <span>P</span>
             <span>E</span>
