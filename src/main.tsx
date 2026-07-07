@@ -17,6 +17,11 @@ type ParsedProjectUrl = {
   title: string;
 };
 
+type ParseError =
+  | { error: "caseA" }
+  | { error: "caseB"; kind: ProjectKind }
+  | { error: "caseC"; kind: ProjectKind };
+
 type ValidationState =
   | { status: "idle"; message: "" }
   | { status: "checking"; message: "" }
@@ -25,9 +30,23 @@ type ValidationState =
 
 const ERROR_MESSAGES = {
   caseA: "URL must point to a Wikipedia or a Wikidata project.",
-  caseB: "URL must point to a Wikipedia/Wikimedia asset/article/record/page.",
-  caseC: "URL must point to an existing Wikipedia/Wikimedia asset/article/record/page.",
 } as const;
+
+function projectName(kind: ProjectKind) {
+  return kind === "wikipedia" ? "Wikipedia" : "Wikidata";
+}
+
+function validationMessage(error: ParseError) {
+  if (error.error === "caseA") {
+    return ERROR_MESSAGES.caseA;
+  }
+
+  if (error.error === "caseB") {
+    return `URL must point to a ${projectName(error.kind)} asset/article/record/page.`;
+  }
+
+  return `URL must point to an existing ${projectName(error.kind)} asset/article/record/page.`;
+}
 
 function isWikipediaHost(host: string) {
   return /^[a-z0-9-]+\.wikipedia\.org$/.test(host);
@@ -49,7 +68,7 @@ function titleFromPath(url: URL) {
   return "";
 }
 
-function parseProjectUrl(value: string): ParsedProjectUrl | { error: keyof typeof ERROR_MESSAGES } {
+function parseProjectUrl(value: string): ParsedProjectUrl | ParseError {
   let url: URL;
 
   try {
@@ -68,7 +87,7 @@ function parseProjectUrl(value: string): ParsedProjectUrl | { error: keyof typeo
     const title = titleFromPath(url).trim();
 
     if (!title || title === "Main Page") {
-      return { error: "caseB" };
+      return { error: "caseB", kind: "wikipedia" };
     }
 
     return { kind: "wikipedia", host, title };
@@ -78,7 +97,7 @@ function parseProjectUrl(value: string): ParsedProjectUrl | { error: keyof typeo
     const title = titleFromPath(url).trim();
 
     if (!title) {
-      return { error: "caseB" };
+      return { error: "caseB", kind: "wikidata" };
     }
 
     return { kind: "wikidata", host: "www.wikidata.org", title };
@@ -170,7 +189,7 @@ function App() {
     if (!parsedUrl || "error" in parsedUrl) {
       setValidation({
         status: "invalid",
-        message: ERROR_MESSAGES[parsedUrl?.error ?? "caseA"],
+        message: validationMessage(parsedUrl ?? { error: "caseA" }),
       });
       return;
     }
@@ -187,7 +206,10 @@ function App() {
           setValidation(
             isValid
               ? { status: "valid", message: "" }
-              : { status: "invalid", message: ERROR_MESSAGES.caseC },
+              : {
+                  status: "invalid",
+                  message: validationMessage({ error: "caseC", kind: parsedUrl.kind }),
+                },
           );
         })
         .catch((error: unknown) => {
@@ -195,7 +217,10 @@ function App() {
             return;
           }
 
-          setValidation({ status: "invalid", message: ERROR_MESSAGES.caseC });
+          setValidation({
+            status: "invalid",
+            message: validationMessage({ error: "caseC", kind: parsedUrl.kind }),
+          });
         });
     }, 300);
 
