@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Montserrat:wght@800&display=swap");
+
 @font-face {
   font-family: "Linux Libertine";
   font-style: normal;
@@ -175,6 +177,11 @@ body {
   font-family: Georgia, "Times New Roman", serif;
   font-style: italic;
   font-size: 1rem;
+}
+
+.brand-byline-name {
+  font-family: Montserrat, Arial, ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
 }
 
 .tagline {
