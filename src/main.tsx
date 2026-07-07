@@ -143,8 +143,19 @@ function App() {
           Weakipedia
         </h1>
         <p className="tagline">
-          In the age of AI, <strong>WIKIPEDIA</strong> is <u>irreplaceable</u>... yet{" "}
-          <u>flawed</u>. <strong>Fix it!</strong>
+          In the age of AI,{" "}
+          <span className="wiki-wordmark" aria-label="Wikipedia">
+            <span>W</span>
+            <span>I</span>
+            <span className="wiki-wordmark-tall">K</span>
+            <span>I</span>
+            <span>P</span>
+            <span>E</span>
+            <span>D</span>
+            <span>I</span>
+            <span className="wiki-wordmark-tall">A</span>
+          </span>{" "}
+          is <u>irreplaceable</u>... yet <u>flawed</u>. <strong>Fix it!</strong>
         </p>
         <form
           className="search-form"

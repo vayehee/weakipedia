@@ -137,15 +137,30 @@ body {
   line-height: 1.5;
 }
 
-.tagline strong:first-of-type {
+.wiki-wordmark {
+  display: inline-flex;
+  align-items: baseline;
   color: inherit;
   font-family: "Linux Libertine", Georgia, "Times New Roman", serif;
-  font-weight: 900;
+  font-size: 1.18em;
+  font-weight: 700;
+  line-height: 0.85;
   text-shadow: 0 0 0 currentColor;
-  -webkit-text-stroke: 0.35px currentColor;
+  -webkit-text-stroke: 0.2px currentColor;
+  vertical-align: -0.03em;
 }
 
-.tagline strong:last-of-type {
+.wiki-wordmark span {
+  display: inline-block;
+  transform: scaleY(0.78);
+  transform-origin: bottom center;
+}
+
+.wiki-wordmark .wiki-wordmark-tall {
+  transform: none;
+}
+
+.tagline strong {
   color: var(--text);
   font-weight: 700;
 }
