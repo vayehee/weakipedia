@@ -482,7 +482,17 @@ body {
   }
 }
 
-@media (orientation: portrait) and (max-width: 389.98px) {
+@media (orientation: portrait) and (max-width: 751.98px) {
+  .brand {
+    width: 504px;
+  }
+
+  .brand-text {
+    font-size: 105.6px;
+  }
+}
+
+@media (orientation: portrait) and (max-width: 535.98px) {
   .brand {
     width: calc(100vw - 32px);
   }
