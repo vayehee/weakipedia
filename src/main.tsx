@@ -123,30 +123,59 @@ function App() {
   const hasSearchValue = articleUrl.length > 0;
 
   useEffect(() => {
-    function updatePortraitPadding() {
+    function updateResponsiveLayout() {
       const width = window.innerWidth;
       const height = window.innerHeight;
-      let paddingTop = height * 0.15;
+      const shortSide = Math.min(width, height);
+      const longSide = Math.max(width, height);
+      const aspectRatio = longSide / Math.max(shortSide, 1);
+      const isMobileDevice =
+        (shortSide <= 480 && aspectRatio >= 1.55) ||
+        (shortSide <= 600 && aspectRatio >= 1.9);
+      const layoutWidth = isMobileDevice ? shortSide : width;
+      const layoutHeight = isMobileDevice ? longSide : height;
+      const isPortraitLayout = isMobileDevice || width <= height;
 
-      if (width <= height) {
-        const range = Math.max(height - 450, 1);
-        const progress = Math.max(0, Math.min(1, (width - 450) / range));
-        paddingTop = height * 0.15 * progress;
+      let paddingTop = height * 0.15;
+      let bylineBottom = -10.4;
+      let faviconMarginLeft = 3.68;
+      let brandWidth = Math.min(504, layoutWidth * 0.7 - 22.4);
+      let brandFontSize = Math.min(105.6, layoutWidth * 0.1468 - 4.7);
+
+      if (layoutWidth < 420) {
+        brandWidth = 288;
+        brandFontSize = 60.4;
       }
 
+      if (isPortraitLayout) {
+        const range = Math.max(layoutHeight - 450, 1);
+        const progress = Math.max(0, Math.min(1, (layoutWidth - 450) / range));
+        paddingTop = layoutHeight * 0.15 * progress;
+        bylineBottom = Math.max(-10.4, -8 - (752 - layoutWidth) * 0.00723);
+        faviconMarginLeft = Math.max(0, 3.68 - (752 - layoutWidth) * 0.01108);
+      }
+
+      document.documentElement.dataset.mobileDevice = isMobileDevice ? "true" : "false";
+      document.documentElement.style.setProperty("--brand-width", `${brandWidth}px`);
+      document.documentElement.style.setProperty("--brand-font-size", `${brandFontSize}px`);
+      document.documentElement.style.setProperty("--brand-byline-portrait-bottom", `${bylineBottom}px`);
+      document.documentElement.style.setProperty(
+        "--brand-byline-favicon-margin-left",
+        `${faviconMarginLeft}px`,
+      );
       document.documentElement.style.setProperty(
         "--search-shell-portrait-padding-top",
         `${paddingTop}px`,
       );
     }
 
-    updatePortraitPadding();
-    window.addEventListener("resize", updatePortraitPadding);
-    window.addEventListener("orientationchange", updatePortraitPadding);
+    updateResponsiveLayout();
+    window.addEventListener("resize", updateResponsiveLayout);
+    window.addEventListener("orientationchange", updateResponsiveLayout);
 
     return () => {
-      window.removeEventListener("resize", updatePortraitPadding);
-      window.removeEventListener("orientationchange", updatePortraitPadding);
+      window.removeEventListener("resize", updateResponsiveLayout);
+      window.removeEventListener("orientationchange", updateResponsiveLayout);
     };
   }, []);
 
