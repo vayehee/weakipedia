@@ -165,6 +165,7 @@ body {
 
 .brand-byline-favicon {
   align-self: center;
+  margin-left: 0.15em;
   width: 0.86em;
   height: 0.86em;
 }
