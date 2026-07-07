@@ -283,6 +283,7 @@ body {
   color: var(--text);
   font: inherit;
   font-size: 16px;
+  scroll-margin-block: 24px;
 }
 
 .url-input:hover,
@@ -514,6 +515,10 @@ body {
   .search-shell {
     padding-top: 0;
     padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+
+  .search-shell:focus-within {
+    padding-bottom: max(240px, 60vh, env(safe-area-inset-bottom));
   }
 }
 
