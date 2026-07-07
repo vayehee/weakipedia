@@ -146,7 +146,11 @@ function App() {
           <div className="brand-byline-layer" aria-hidden="true">
             <div className="brand-byline">
               <span className="brand-byline-by">by</span>
-              <img className="brand-byline-favicon" src="https://vayehee.com/favicon.ico" alt="" />
+              <img
+                className="brand-byline-favicon"
+                src="https://vayehee.com/wp-content/uploads/2021/11/cropped-cropped-logo-small-1-32x32.png"
+                alt=""
+              />
               <span>Vayehee</span>
             </div>
           </div>
