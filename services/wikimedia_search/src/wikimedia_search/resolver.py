@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import html
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import quote, unquote, urlparse
@@ -40,6 +41,8 @@ PRIORITY_WIKIPEDIA_HOSTS = [
 ]
 
 _wikipedia_hosts_cache: list[str] | None = None
+_allusers_cache: dict[tuple[str, str], tuple[float, list[Suggestion]]] = {}
+ALLUSERS_CACHE_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -146,6 +149,17 @@ def user_name_from_query(query: str) -> str | None:
     return match.group(1).strip()
 
 
+def user_search_prefixes(user_name: str) -> list[str]:
+    cleaned = user_name.strip()
+    min_length = min(4, len(cleaned))
+    prefixes: list[str] = []
+    for length in range(len(cleaned), min_length - 1, -1):
+        prefix = cleaned[:length].strip()
+        if prefix and prefix not in prefixes:
+            prefixes.append(prefix)
+    return prefixes
+
+
 def unique_suggestions(suggestions: list[Suggestion]) -> list[Suggestion]:
     seen: set[str] = set()
     unique: list[Suggestion] = []
@@ -185,6 +199,27 @@ def filter_and_rank_suggestions(suggestions: list[Suggestion], query: str) -> li
 
     scored.sort(key=lambda item: item[0], reverse=True)
     return [suggestion for _, suggestion in scored]
+
+
+def rank_user_suggestions(suggestions: list[Suggestion], user_name: str) -> list[Suggestion]:
+    normalized_user_name = normalize_text(user_name)
+    priority = {host: index for index, host in enumerate(PRIORITY_WIKIPEDIA_HOSTS)}
+    scored: list[tuple[float, int, Suggestion]] = []
+
+    for suggestion in suggestions:
+        title_user_name = re.sub(r"^User:", "", suggestion.title, flags=re.IGNORECASE)
+        normalized_title = normalize_text(title_user_name)
+        ratio_score = fuzz.ratio(normalized_user_name, normalized_title)
+        prefix_bonus = 5 if normalized_title.startswith(normalized_user_name) else 0
+        score = ratio_score + prefix_bonus
+
+        if score < 70:
+            continue
+
+        scored.append((score, priority.get(suggestion.source, 999), suggestion))
+
+    scored.sort(key=lambda item: (-item[0], item[1], normalize_text(item[2].title)))
+    return [suggestion for _, _, suggestion in scored]
 
 
 async def wikipedia_hosts(client: httpx.AsyncClient) -> list[str]:
@@ -295,39 +330,38 @@ async def exact_wikidata_suggestion(
 async def search_wikipedia_host(
     client: httpx.AsyncClient, host: str, query: str, limit: int = 3
 ) -> list[Suggestion]:
-    namespace = "0|2" if user_name_from_query(query) else "0"
     response = await client.get(
         f"https://{host}/w/api.php",
         params={
-            "action": "query",
+            "action": "opensearch",
             "format": "json",
+            "limit": str(limit),
+            "namespace": "0",
             "origin": "*",
-            "list": "search",
-            "srnamespace": namespace,
-            "srlimit": str(limit),
-            "srsearch": query,
+            "search": query,
         },
     )
     response.raise_for_status()
-    results = response.json().get("query", {}).get("search", [])
+    _, titles, descriptions, urls = response.json()
     return [
         Suggestion(
-            description=clean_snippet(result.get("snippet")),
+            description=descriptions[index] if index < len(descriptions) else "",
             faviconUrl=favicon_url(host),
             source=host,
-            title=result["title"],
-            url=canonical_wikipedia_url(host, result["title"]),
+            title=title,
+            url=urls[index] if index < len(urls) and urls[index] else canonical_wikipedia_url(host, title),
         )
-        for result in results
+        for index, title in enumerate(titles)
     ]
 
 
-async def exact_wikipedia_user_record(
-    client: httpx.AsyncClient, host: str, query: str
-) -> Suggestion | None:
-    user_name = user_name_from_query(query)
-    if not user_name:
-        return None
+async def search_wikipedia_users_by_prefix(
+    client: httpx.AsyncClient, host: str, prefix: str, limit: int = 20
+) -> list[Suggestion]:
+    cache_key = (host, prefix.casefold())
+    cached = _allusers_cache.get(cache_key)
+    if cached and time.monotonic() - cached[0] < ALLUSERS_CACHE_SECONDS:
+        return cached[1]
 
     response = await client.get(
         f"https://{host}/w/api.php",
@@ -335,29 +369,34 @@ async def exact_wikipedia_user_record(
             "action": "query",
             "format": "json",
             "origin": "*",
-            "list": "users",
-            "usprop": "editcount|registration",
-            "ususers": user_name,
+            "list": "allusers",
+            "auprefix": prefix,
+            "auprop": "groups|editcount|registration",
+            "aulimit": str(limit),
         },
-    )
+        )
     response.raise_for_status()
-    user = next(iter(response.json().get("query", {}).get("users", [])), None)
-    if not user or "missing" in user or "invalid" in user:
-        return None
-
-    edit_count = user.get("editcount")
-    description = (
-        f"Wikipedia user, {edit_count:,} edits"
-        if isinstance(edit_count, int)
-        else "Wikipedia user"
-    )
-    return Suggestion(
-        description=description,
-        faviconUrl=favicon_url(host),
-        source=host,
-        title=f"User:{user['name']}",
-        url=canonical_wikipedia_url(host, f"User:{user['name']}"),
-    )
+    users = response.json().get("query", {}).get("allusers", [])
+    suggestions: list[Suggestion] = []
+    for user in users:
+        edit_count = user.get("editcount")
+        groups = [group for group in user.get("groups", []) if group not in {"*", "user"}]
+        details = [f"{edit_count:,} edits"] if isinstance(edit_count, int) else []
+        if groups:
+            details.append(", ".join(groups[:3]))
+        description = f"Wikipedia user, {'; '.join(details)}" if details else "Wikipedia user"
+        title = f"User:{user['name']}"
+        suggestions.append(
+            Suggestion(
+                description=description,
+                faviconUrl=favicon_url(host),
+                source=host,
+                title=title,
+                url=canonical_wikipedia_url(host, title),
+            )
+        )
+    _allusers_cache[cache_key] = (time.monotonic(), suggestions)
+    return suggestions
 
 
 async def search_wikipedia_url_context(
@@ -415,7 +454,50 @@ async def search_wikidata(client: httpx.AsyncClient, query: str, limit: int = 5)
     ]
 
 
+async def search_all_wikipedia_users(client: httpx.AsyncClient, query: str) -> list[Suggestion]:
+    user_name = user_name_from_query(query)
+    if not user_name:
+        return []
+
+    all_hosts = await wikipedia_hosts(client)
+    priority_hosts = [host for host in PRIORITY_WIKIPEDIA_HOSTS if host in all_hosts]
+    remaining_hosts = [host for host in all_hosts if host not in set(priority_hosts)]
+    host_stages = [priority_hosts, remaining_hosts]
+    prefixes = user_search_prefixes(user_name)
+    semaphore = asyncio.Semaphore(20)
+    suggestions: list[Suggestion] = []
+
+    async def guarded_user_search(host: str, prefix: str) -> list[Suggestion]:
+        async with semaphore:
+            try:
+                return await search_wikipedia_users_by_prefix(client, host, prefix)
+            except Exception:
+                return []
+
+    for hosts in host_stages:
+        if not hosts:
+            continue
+        for prefix in prefixes:
+            prefix_results = await asyncio.gather(
+                *(guarded_user_search(host, prefix) for host in hosts)
+            )
+            suggestions = unique_suggestions(
+                suggestions + [item for group in prefix_results for item in group]
+            )
+            ranked = rank_user_suggestions(suggestions, user_name)
+            if len(ranked) >= 10:
+                break
+        else:
+            continue
+        break
+
+    return rank_user_suggestions(suggestions, user_name)[:10]
+
+
 async def search_all_projects(client: httpx.AsyncClient, query: str) -> list[Suggestion]:
+    if user_name_from_query(query):
+        return await search_all_wikipedia_users(client, query)
+
     # Warm the full site matrix for the backend, but keep live search responsive on priority hosts.
     asyncio.create_task(wikipedia_hosts(client))
     hosts = PRIORITY_WIKIPEDIA_HOSTS
@@ -434,14 +516,12 @@ async def search_all_projects(client: httpx.AsyncClient, query: str) -> list[Sug
         except Exception:
             return []
 
-    user_record_result, wikipedia_results, wikidata_results = await asyncio.gather(
-        exact_wikipedia_user_record(client, "en.wikipedia.org", query),
+    wikipedia_results, wikidata_results = await asyncio.gather(
         asyncio.gather(*(guarded_search(host) for host in hosts)),
         guarded_wikidata_search(),
     )
     suggestions = unique_suggestions(
-        ([user_record_result] if user_record_result else [])
-        + [item for group in wikipedia_results for item in group]
+        [item for group in wikipedia_results for item in group]
         + wikidata_results
     )
     return filter_and_rank_suggestions(suggestions, query)[:10]
