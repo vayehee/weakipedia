@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "login": "tsx src/login.ts",
-    "me": "tsx src/me.ts"
+    "me": "tsx src/me.ts",
+    "send": "tsx src/send.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
