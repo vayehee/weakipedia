@@ -465,7 +465,7 @@ body {
   }
 
   .search-shell {
-    padding-top: clamp(0px, calc((100vw - 450px) * 0.24), 92px);
+    padding-top: calc((100vw - 450px) * 0.24);
   }
 
   .login-button {
@@ -484,7 +484,7 @@ body {
 
 @media (max-width: 449.98px) {
   .search-shell {
-    padding-top: clamp(0px, 0vh, 0px);
+    padding-top: 0px;
   }
 }
 
