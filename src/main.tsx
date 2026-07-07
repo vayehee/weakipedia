@@ -34,7 +34,7 @@ function App() {
           Weakipedia
         </h1>
         <p className="tagline">
-          In the age of AI, <strong>WIKIPEDIA</strong> is <u>irreplaceable</u>… but{" "}
+          In the age of AI, <strong>WIKIPEDIA</strong> is <u>irreplaceable</u>… yet{" "}
           <u>flawed</u>. <strong>Fix it!</strong>
         </p>
         <form className="search-form" role="search">
