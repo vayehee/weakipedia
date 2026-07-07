@@ -174,6 +174,35 @@ function uniqueSuggestions(suggestions: Suggestion[]) {
   });
 }
 
+function normalizeSearchText(value: string) {
+  return value.toLocaleLowerCase().normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+function filterSuggestionsForQuery(suggestions: Suggestion[], query: string) {
+  const normalizedQuery = normalizeSearchText(query);
+  const queryTokens = normalizedQuery.split(" ").filter(Boolean);
+
+  if (normalizedQuery.length < 2) {
+    return suggestions;
+  }
+
+  const titleMatches = suggestions.filter((suggestion) => {
+    const title = normalizeSearchText(suggestion.title);
+
+    return title.includes(normalizedQuery) || queryTokens.every((token) => title.includes(token));
+  });
+
+  if (titleMatches.length > 0) {
+    return titleMatches;
+  }
+
+  return suggestions.filter((suggestion) =>
+    queryTokens.every((token) =>
+      normalizeSearchText(`${suggestion.title} ${suggestion.description}`).includes(token),
+    ),
+  );
+}
+
 function cleanSnippet(value = "") {
   const withoutTags = value.replace(/<[^>]*>/g, "");
   const textarea = document.createElement("textarea");
@@ -280,7 +309,7 @@ async function mapWithConcurrency<T, R>(
   return results.filter((result): result is R => Boolean(result));
 }
 
-async function validateWikipediaUrl(parsed: ParsedProjectUrl, signal: AbortSignal) {
+async function exactWikipediaSuggestion(parsed: ParsedProjectUrl, signal: AbortSignal) {
   const api = new URL(`https://${parsed.host}/w/api.php`);
   api.search = new URLSearchParams({
     action: "query",
@@ -299,13 +328,23 @@ async function validateWikipediaUrl(parsed: ParsedProjectUrl, signal: AbortSigna
 
   const data = (await response.json()) as {
     query?: {
-      pages?: Record<string, { missing?: string; ns?: number }>;
+      pages?: Record<string, { missing?: string; ns?: number; title: string }>;
     };
   };
 
   const page = Object.values(data.query?.pages ?? {})[0];
 
-  return Boolean(page && !("missing" in page) && (page.ns === 0 || page.ns === 2));
+  if (!page || "missing" in page || (page.ns !== 0 && page.ns !== 2)) {
+    return null;
+  }
+
+  return {
+    description: page.ns === 2 ? "User page" : "Article",
+    faviconUrl: faviconUrl(parsed.host),
+    source: parsed.host,
+    title: page.title,
+    url: canonicalWikipediaUrl(parsed.host, page.title),
+  };
 }
 
 async function searchWikipedia(parsed: ParsedProjectUrl, signal: AbortSignal) {
@@ -344,13 +383,12 @@ async function searchWikipedia(parsed: ParsedProjectUrl, signal: AbortSignal) {
 async function searchWikipediaHost(host: string, query: string, signal: AbortSignal) {
   const api = new URL(`https://${host}/w/api.php`);
   api.search = new URLSearchParams({
-    action: "query",
+    action: "opensearch",
     format: "json",
+    limit: "3",
+    namespace: "0",
     origin: "*",
-    list: "search",
-    srnamespace: "0",
-    srlimit: "3",
-    srsearch: query,
+    search: query,
   }).toString();
 
   const response = await fetch(api, { signal });
@@ -359,26 +397,23 @@ async function searchWikipediaHost(host: string, query: string, signal: AbortSig
     return [];
   }
 
-  const data = (await response.json()) as {
-    query?: {
-      search?: Array<{ snippet?: string; title: string }>;
-    };
-  };
+  const data = (await response.json()) as [string, string[], string[], string[]];
+  const [, titles = [], descriptions = [], urls = []] = data;
 
-  return (data.query?.search ?? []).map((result) => ({
-    description: cleanSnippet(result.snippet),
+  return titles.map((title, index) => ({
+    description: descriptions[index] ?? "",
     faviconUrl: faviconUrl(host),
     source: host,
-    title: result.title,
-    url: canonicalWikipediaUrl(host, result.title),
+    title,
+    url: urls[index] || canonicalWikipediaUrl(host, title),
   }));
 }
 
-async function validateWikidataUrl(parsed: ParsedProjectUrl, signal: AbortSignal) {
+async function exactWikidataSuggestion(parsed: ParsedProjectUrl, signal: AbortSignal) {
   const entityId = parsed.title.match(/^(Q\d+|P\d+|L\d+)$/i)?.[1]?.toUpperCase();
 
   if (!entityId) {
-    return false;
+    return null;
   }
 
   const api = new URL("https://www.wikidata.org/w/api.php");
@@ -386,8 +421,9 @@ async function validateWikidataUrl(parsed: ParsedProjectUrl, signal: AbortSignal
     action: "wbgetentities",
     format: "json",
     ids: entityId,
+    languages: "en",
     origin: "*",
-    props: "",
+    props: "labels|descriptions",
   }).toString();
 
   const response = await fetch(api, { signal });
@@ -397,10 +433,31 @@ async function validateWikidataUrl(parsed: ParsedProjectUrl, signal: AbortSignal
   }
 
   const data = (await response.json()) as {
-    entities?: Record<string, { missing?: string }>;
+    entities?: Record<
+      string,
+      {
+        descriptions?: { en?: { value: string } };
+        labels?: { en?: { value: string } };
+        missing?: string;
+      }
+    >;
   };
 
-  return Boolean(data.entities?.[entityId] && !("missing" in data.entities[entityId]));
+  const entity = data.entities?.[entityId];
+
+  if (!entity || "missing" in entity) {
+    return null;
+  }
+
+  const label = entity.labels?.en?.value;
+
+  return {
+    description: entity.descriptions?.en?.value ?? entityId,
+    faviconUrl: faviconUrl("www.wikidata.org"),
+    source: "wikidata.org",
+    title: label ? `${label} (${entityId})` : entityId,
+    url: canonicalWikidataUrl(entityId),
+  };
 }
 
 async function searchWikidata(parsed: ParsedProjectUrl, signal: AbortSignal) {
@@ -434,7 +491,8 @@ async function searchWikidata(parsed: ParsedProjectUrl, signal: AbortSignal) {
 }
 
 async function searchAllProjects(query: string, signal: AbortSignal) {
-  const hosts = await wikipediaSearchHosts();
+  void wikipediaSearchHosts();
+  const hosts = [...FALLBACK_WIKIPEDIA_SEARCH_HOSTS];
   const wikipediaSearches = mapWithConcurrency(hosts, 8, signal, (host) =>
     searchWikipediaHost(host, query, signal).catch(() => []),
   );
@@ -448,7 +506,10 @@ async function searchAllProjects(query: string, signal: AbortSignal) {
     wikidataSearch,
   ]);
 
-  return uniqueSuggestions([...wikipediaResults.flat(), ...wikidataResults]).slice(0, 10);
+  return filterSuggestionsForQuery(
+    uniqueSuggestions([...wikipediaResults.flat(), ...wikidataResults]),
+    query,
+  ).slice(0, 10);
 }
 
 function App() {
@@ -488,8 +549,9 @@ function App() {
 
     if (!looksLikeUrl(trimmed)) {
       const controller = new AbortController();
+      setSuggestions([]);
+      setValidation({ status: "checking", message: "" });
       const timeout = window.setTimeout(() => {
-        setValidation({ status: "checking", message: "" });
         searchAllProjects(trimmed, controller.signal)
           .then((nextSuggestions) => {
             if (controller.signal.aborted) {
@@ -534,22 +596,21 @@ function App() {
     }
 
     const controller = new AbortController();
+    setValidation({ status: "checking", message: "" });
+    setSuggestions([]);
     const timeout = window.setTimeout(() => {
-      setValidation({ status: "checking", message: "" });
-      setSuggestions([]);
-
-      const validator =
-        parsedUrl.kind === "wikipedia" ? validateWikipediaUrl : validateWikidataUrl;
+      const exactSuggestion =
+        parsedUrl.kind === "wikipedia" ? exactWikipediaSuggestion : exactWikidataSuggestion;
       const searcher = parsedUrl.kind === "wikipedia" ? searchWikipedia : searchWikidata;
 
-      validator(parsedUrl, controller.signal)
-        .then(async (isValid) => {
+      exactSuggestion(parsedUrl, controller.signal)
+        .then(async (suggestion) => {
           if (controller.signal.aborted) {
             return;
           }
 
-          if (isValid) {
-            setSuggestions([]);
+          if (suggestion) {
+            setSuggestions([suggestion]);
             setValidation({ status: "valid", message: "" });
             return;
           }
@@ -669,7 +730,7 @@ function App() {
             }`}
             aria-live="polite"
           >
-            {validation.status === "checking" ? "Checking URL..." : validation.message}
+            {validation.status === "checking" ? "Checking..." : validation.message}
           </p>
         </form>
       </main>
