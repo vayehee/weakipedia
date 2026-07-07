@@ -132,7 +132,7 @@ body {
 }
 
 .tagline strong {
-  color: var(--text);
+  color: inherit;
   font-family: "Linux Libertine", Georgia, "Times New Roman", serif;
   font-weight: 700;
 }

@@ -34,7 +34,7 @@ function App() {
           Weakipedia
         </h1>
         <p className="tagline">
-          In the age of AI, <strong>Wikipedia</strong> is paramount… but flawed. You
+          In the age of AI, <strong>WIKIPEDIA</strong> is paramount… but flawed. You
           have the power to fix it!
         </p>
         <form className="search-form" role="search">
