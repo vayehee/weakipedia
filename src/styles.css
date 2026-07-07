@@ -481,3 +481,23 @@ body {
     margin-right: 0;
   }
 }
+
+@media (orientation: portrait) and (max-width: 389.98px) {
+  .brand {
+    width: calc(100vw - 32px);
+  }
+
+  .brand-text {
+    font-size: calc(20.97vw - 6.71px);
+  }
+}
+
+@media (orientation: portrait) and (max-width: 319.98px) {
+  .brand {
+    width: 288px;
+  }
+
+  .brand-text {
+    font-size: 60.4px;
+  }
+}
