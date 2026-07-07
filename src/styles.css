@@ -52,19 +52,20 @@ html,
 body {
   min-width: 320px;
   min-height: 100vh;
-  min-height: 100dvh;
+  min-height: 100svh;
   margin: 0;
   background: var(--page-bg);
   color: var(--text);
   overflow-x: hidden;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .page {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  min-height: 100dvh;
+  min-height: 100svh;
 }
 
 .topbar {
@@ -501,6 +502,18 @@ body {
 @media (max-width: 449.98px) {
   .search-shell {
     padding-top: 0px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 480px) {
+  .topbar {
+    min-height: 48px;
+    padding: 6px 12px;
+  }
+
+  .search-shell {
+    padding-top: 0;
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
   }
 }
 
