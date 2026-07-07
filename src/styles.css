@@ -276,7 +276,7 @@ body {
 }
 
 .url-input::placeholder {
-  color: var(--muted);
+  color: #9aa0a6;
   opacity: 1;
 }
 

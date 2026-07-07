@@ -184,7 +184,7 @@ function App() {
               <input
                 aria-label="Wikipedia article URL"
                 className="url-input"
-                placeholder="Wikipedia article URL"
+                placeholder="Search or paste Wikipedia article URL..."
                 type="text"
                 value={articleUrl}
                 onChange={(event) => {
