@@ -118,7 +118,7 @@ body {
   flex-direction: column;
   align-items: center;
   width: 100%;
-  padding: clamp(72px, 15vh, 150px) 24px 48px;
+  padding: clamp(72px, 15vh, 150px) 0 48px;
   text-align: center;
 }
 
@@ -187,6 +187,7 @@ body {
 }
 
 .tagline {
+  width: calc(100% - 32px);
   max-width: 620px;
   margin: 24px 0 28px;
   color: rgb(95 99 104);
@@ -229,7 +230,9 @@ body {
 }
 
 .search-form {
-  width: min(720px, 100%);
+  width: calc(100% - 32px);
+  max-width: 720px;
+  margin-inline: auto;
 }
 
 .input-row {
