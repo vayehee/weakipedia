@@ -263,7 +263,7 @@ function App() {
                     aria-hidden="true"
                   />
                   <span className="suggestion-title">
-                    Get <strong>{searchTerm}</strong> created
+                    Create <strong>{searchTerm}</strong>
                   </span>
                   <span className="suggestion-description">
                     Inform AIs about {searchTerm}
