@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { LoaderCircle, Search } from "lucide-react";
+import { LoaderCircle, Search, X } from "lucide-react";
 import "./styles.css";
 
 const mockTelegramUser = null as
@@ -108,18 +108,50 @@ function App() {
   const user = mockTelegramUser;
   const [articleUrl, setArticleUrl] = useState("");
   const [selectedSuggestionUrl, setSelectedSuggestionUrl] = useState("");
+  const [selectedCreateValue, setSelectedCreateValue] = useState("");
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [validation, setValidation] = useState<ValidationState>({
     status: "idle",
     message: "",
   });
-  const canSubmit = validation.status === "valid";
   const searchTerm = articleUrl.trim();
   const hasExactSuggestion = suggestions.some((suggestion) =>
     suggestionTitleMatchesSearchTerm(suggestion, searchTerm),
   );
   const showCreateSuggestion =
     suggestions.length > 0 && validation.status !== "valid" && Boolean(searchTerm) && !hasExactSuggestion;
+  const hasSearchValue = articleUrl.length > 0;
+
+  function resetSearch() {
+    setArticleUrl("");
+    setSelectedSuggestionUrl("");
+    setSelectedCreateValue("");
+    setSuggestions([]);
+    setValidation({ status: "idle", message: "" });
+  }
+
+  function selectSuggestion(suggestion: Suggestion) {
+    setSelectedSuggestionUrl(suggestion.url);
+    setSelectedCreateValue("");
+    setSuggestions([]);
+    setValidation({ status: "valid", message: "" });
+    setArticleUrl(suggestion.url);
+  }
+
+  function selectCreateSuggestion() {
+    const createValue = `Create: ${searchTerm}`;
+    setSelectedSuggestionUrl("");
+    setSelectedCreateValue(createValue);
+    setSuggestions([]);
+    setValidation({ status: "valid", message: "" });
+    setArticleUrl(createValue);
+  }
+
+  function submitSearch() {
+    if (suggestions.length > 0) {
+      selectSuggestion(suggestions[0]);
+    }
+  }
 
   useEffect(() => {
     const trimmed = articleUrl.trim();
@@ -131,7 +163,7 @@ function App() {
       return;
     }
 
-    if (trimmed === selectedSuggestionUrl) {
+    if (trimmed === selectedSuggestionUrl || trimmed === selectedCreateValue) {
       setSuggestions([]);
       setValidation({ status: "valid", message: "" });
       return;
@@ -169,7 +201,7 @@ function App() {
       controller.abort();
       window.clearTimeout(timeout);
     };
-  }, [articleUrl, selectedSuggestionUrl]);
+  }, [articleUrl, selectedCreateValue, selectedSuggestionUrl]);
 
   return (
     <div className="page">
@@ -225,6 +257,7 @@ function App() {
           role="search"
           onSubmit={(event) => {
             event.preventDefault();
+            submitSearch();
           }}
         >
           <div className="input-row">
@@ -238,13 +271,29 @@ function App() {
                 value={articleUrl}
                 onChange={(event) => {
                   setSelectedSuggestionUrl("");
+                  setSelectedCreateValue("");
                   setArticleUrl(event.target.value);
                 }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  submitSearch();
+                }}
               />
+              {hasSearchValue ? (
+                <button
+                  className="clear-search-button"
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={resetSearch}
+                >
+                  <X aria-hidden="true" strokeWidth={2} />
+                </button>
+              ) : null}
             </div>
-            <button className="submit-button" type="submit" disabled={!canSubmit}>
-              Submit
-            </button>
           </div>
           {suggestions.length > 0 ? (
             <div className="suggestions-tray" role="listbox" aria-label="Search suggestions">
@@ -253,12 +302,7 @@ function App() {
                   className="suggestion-option"
                   key={suggestion.url}
                   type="button"
-                  onClick={() => {
-                    setSelectedSuggestionUrl(suggestion.url);
-                    setSuggestions([]);
-                    setValidation({ status: "valid", message: "" });
-                    setArticleUrl(suggestion.url);
-                  }}
+                  onClick={() => selectSuggestion(suggestion)}
                 >
                   <img
                     className="suggestion-favicon"
@@ -274,7 +318,11 @@ function App() {
                 </button>
               ))}
               {showCreateSuggestion ? (
-                <button className="suggestion-option suggestion-create-option" type="button">
+                <button
+                  className="suggestion-option suggestion-create-option"
+                  type="button"
+                  onClick={selectCreateSuggestion}
+                >
                   <img
                     className="suggestion-favicon"
                     src={VAYEHEE_FAVICON_URL}
