@@ -507,17 +507,21 @@ body {
 }
 
 @media (orientation: landscape) and (max-height: 480px) {
+  .page {
+    min-height: 200vh;
+    min-height: 200svh;
+  }
+
   .topbar {
     min-height: 48px;
     padding: 6px 12px;
   }
 
   .search-shell {
+    flex: 0 0 auto;
+    min-height: calc(200vh - 48px);
+    min-height: calc(200svh - 48px);
     padding-top: 0;
-    padding-bottom: max(24px, env(safe-area-inset-bottom));
-  }
-
-  .search-shell:focus-within {
     padding-bottom: max(240px, 60vh, env(safe-area-inset-bottom));
   }
 }
