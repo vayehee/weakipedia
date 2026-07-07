@@ -64,6 +64,23 @@ async function resolveWikimediaInput(input: string, signal: AbortSignal) {
   return (await response.json()) as ResolveResponse;
 }
 
+function normalizeSuggestionText(value: string) {
+  return value.toLocaleLowerCase().normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+function suggestionTitleMatchesSearchTerm(suggestion: Suggestion, searchTerm: string) {
+  const normalizedSearchTerm = normalizeSuggestionText(searchTerm);
+  const normalizedTitle = normalizeSuggestionText(suggestion.title);
+  const normalizedTitleWithoutEntityId = normalizeSuggestionText(
+    suggestion.title.replace(/\s+\((?:Q|P|L)\d+\)$/i, ""),
+  );
+
+  return (
+    normalizedTitle === normalizedSearchTerm ||
+    normalizedTitleWithoutEntityId === normalizedSearchTerm
+  );
+}
+
 function App() {
   const user = mockTelegramUser;
   const [articleUrl, setArticleUrl] = useState("");
@@ -75,7 +92,11 @@ function App() {
   });
   const canSubmit = validation.status === "valid";
   const searchTerm = articleUrl.trim();
-  const showCreateSuggestion = suggestions.length > 0 && validation.status !== "valid" && searchTerm;
+  const hasExactSuggestion = suggestions.some((suggestion) =>
+    suggestionTitleMatchesSearchTerm(suggestion, searchTerm),
+  );
+  const showCreateSuggestion =
+    suggestions.length > 0 && validation.status !== "valid" && searchTerm && !hasExactSuggestion;
 
   useEffect(() => {
     const trimmed = articleUrl.trim();
