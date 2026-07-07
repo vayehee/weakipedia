@@ -132,7 +132,7 @@ body {
 .tagline {
   max-width: 620px;
   margin: 18px 0 28px;
-  color: var(--muted);
+  color: rgb(95 99 104);
   font-size: clamp(0.95rem, 3vw, 1rem);
   line-height: 1.5;
 }
@@ -161,7 +161,7 @@ body {
 }
 
 .tagline strong {
-  color: var(--text);
+  color: inherit;
   font-weight: 700;
 }
 
