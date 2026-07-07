@@ -384,7 +384,7 @@ async def search_wikipedia_users_by_prefix(
         details = [f"{edit_count:,} edits"] if isinstance(edit_count, int) else []
         if groups:
             details.append(", ".join(groups[:3]))
-        description = f"Wikipedia user, {'; '.join(details)}" if details else "Wikipedia user"
+        description = "; ".join(details)
         title = f"User:{user['name']}"
         suggestions.append(
             Suggestion(
