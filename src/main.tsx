@@ -81,6 +81,10 @@ function suggestionTitleMatchesSearchTerm(suggestion: Suggestion, searchTerm: st
   );
 }
 
+function exactSearchTermSuggestions(suggestions: Suggestion[], searchTerm: string) {
+  return suggestions.filter((suggestion) => suggestionTitleMatchesSearchTerm(suggestion, searchTerm));
+}
+
 function App() {
   const user = mockTelegramUser;
   const [articleUrl, setArticleUrl] = useState("");
@@ -125,7 +129,8 @@ function App() {
             return;
           }
 
-          setSuggestions(result.suggestions);
+          const exactSuggestions = exactSearchTermSuggestions(result.suggestions, trimmed);
+          setSuggestions(exactSuggestions.length > 0 ? exactSuggestions : result.suggestions);
           setValidation(toValidationState(result));
         })
         .catch((error: unknown) => {
