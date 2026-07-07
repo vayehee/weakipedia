@@ -139,6 +139,13 @@ def clean_snippet(value: str | None) -> str:
     return html.unescape(re.sub(r"<[^>]*>", "", value))
 
 
+def user_name_from_query(query: str) -> str | None:
+    match = re.fullmatch(r"\s*User\s*:\s*(.+?)\s*", query, re.IGNORECASE)
+    if not match:
+        return None
+    return match.group(1).strip()
+
+
 def unique_suggestions(suggestions: list[Suggestion]) -> list[Suggestion]:
     seen: set[str] = set()
     unique: list[Suggestion] = []
@@ -288,29 +295,69 @@ async def exact_wikidata_suggestion(
 async def search_wikipedia_host(
     client: httpx.AsyncClient, host: str, query: str, limit: int = 3
 ) -> list[Suggestion]:
+    namespace = "0|2" if user_name_from_query(query) else "0"
     response = await client.get(
         f"https://{host}/w/api.php",
         params={
-            "action": "opensearch",
+            "action": "query",
             "format": "json",
-            "limit": str(limit),
-            "namespace": "0",
             "origin": "*",
-            "search": query,
+            "list": "search",
+            "srnamespace": namespace,
+            "srlimit": str(limit),
+            "srsearch": query,
         },
     )
     response.raise_for_status()
-    _, titles, descriptions, urls = response.json()
+    results = response.json().get("query", {}).get("search", [])
     return [
         Suggestion(
-            description=descriptions[index] if index < len(descriptions) else "",
+            description=clean_snippet(result.get("snippet")),
             faviconUrl=favicon_url(host),
             source=host,
-            title=title,
-            url=urls[index] if index < len(urls) and urls[index] else canonical_wikipedia_url(host, title),
+            title=result["title"],
+            url=canonical_wikipedia_url(host, result["title"]),
         )
-        for index, title in enumerate(titles)
+        for result in results
     ]
+
+
+async def exact_wikipedia_user_record(
+    client: httpx.AsyncClient, host: str, query: str
+) -> Suggestion | None:
+    user_name = user_name_from_query(query)
+    if not user_name:
+        return None
+
+    response = await client.get(
+        f"https://{host}/w/api.php",
+        params={
+            "action": "query",
+            "format": "json",
+            "origin": "*",
+            "list": "users",
+            "usprop": "editcount|registration",
+            "ususers": user_name,
+        },
+    )
+    response.raise_for_status()
+    user = next(iter(response.json().get("query", {}).get("users", [])), None)
+    if not user or "missing" in user or "invalid" in user:
+        return None
+
+    edit_count = user.get("editcount")
+    description = (
+        f"Wikipedia user, {edit_count:,} edits"
+        if isinstance(edit_count, int)
+        else "Wikipedia user"
+    )
+    return Suggestion(
+        description=description,
+        faviconUrl=favicon_url(host),
+        source=host,
+        title=f"User:{user['name']}",
+        url=canonical_wikipedia_url(host, f"User:{user['name']}"),
+    )
 
 
 async def search_wikipedia_url_context(
@@ -387,11 +434,16 @@ async def search_all_projects(client: httpx.AsyncClient, query: str) -> list[Sug
         except Exception:
             return []
 
-    wikipedia_results, wikidata_results = await asyncio.gather(
+    user_record_result, wikipedia_results, wikidata_results = await asyncio.gather(
+        exact_wikipedia_user_record(client, "en.wikipedia.org", query),
         asyncio.gather(*(guarded_search(host) for host in hosts)),
         guarded_wikidata_search(),
     )
-    suggestions = unique_suggestions([item for group in wikipedia_results for item in group] + wikidata_results)
+    suggestions = unique_suggestions(
+        ([user_record_result] if user_record_result else [])
+        + [item for group in wikipedia_results for item in group]
+        + wikidata_results
+    )
     return filter_and_rank_suggestions(suggestions, query)[:10]
 
 
