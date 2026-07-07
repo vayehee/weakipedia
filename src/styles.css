@@ -88,6 +88,7 @@ body {
   gap: 12px;
 }
 
+.theme-button,
 .login-button,
 .logout-button {
   min-height: 36px;
@@ -99,6 +100,26 @@ body {
   transition:
     background-color 120ms ease,
     box-shadow 120ms ease;
+}
+
+.theme-button {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  padding: 0;
+  background: var(--subtle-button-bg);
+  color: var(--subtle-button-text);
+}
+
+.theme-button:hover,
+.theme-button:focus-visible {
+  background: var(--subtle-button-bg-hover);
+  outline: none;
+}
+
+.theme-button svg {
+  width: 18px;
+  height: 18px;
 }
 
 .login-button {
@@ -479,6 +500,62 @@ body {
     --subtle-button-bg-hover: rgba(232, 234, 237, 0.08);
     --subtle-button-text: #e8eaed;
   }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --page-bg: #f6f7f8;
+  --text: #202124;
+  --muted: #5f6368;
+  --subtle-text: #5f6368;
+  --placeholder-text: #9aa0a6;
+  --icon-text: #9aa0a6;
+  --field-bg: #ffffff;
+  --field-border: #dfe1e5;
+  --field-shadow: 0 1px 6px rgba(32, 33, 36, 0.18);
+  --tray-bg: #ffffff;
+  --tray-border: #dfe1e5;
+  --tray-hover-bg: #f8fafd;
+  --tray-create-bg: #dfe1e5;
+  --brand-accent: #1da1f2;
+  --button-bg: #1da1f2;
+  --button-bg-hover: #1da1f2;
+  --button-text: #ffffff;
+  --button-disabled-bg: #f1f3f4;
+  --button-disabled-text: #9aa0a6;
+  --error-text: #d93025;
+  --focus-ring: #8ab4f8;
+  --button-shadow: 0 1px 2px rgba(60, 64, 67, 0.3);
+  --subtle-button-bg-hover: rgba(60, 64, 67, 0.08);
+  --subtle-button-text: #3c4043;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page-bg: #202124;
+  --text: #e8eaed;
+  --muted: #bdc1c6;
+  --subtle-text: #bdc1c6;
+  --placeholder-text: #9aa0a6;
+  --icon-text: #9aa0a6;
+  --field-bg: #303134;
+  --field-border: #5f6368;
+  --field-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+  --tray-bg: #303134;
+  --tray-border: #5f6368;
+  --tray-hover-bg: #3c4043;
+  --tray-create-bg: #3c4043;
+  --brand-accent: #1da1f2;
+  --button-bg: #1da1f2;
+  --button-bg-hover: #1da1f2;
+  --button-text: #ffffff;
+  --button-disabled-bg: #303134;
+  --button-disabled-text: #80868b;
+  --error-text: #f28b82;
+  --focus-ring: #8ab4f8;
+  --button-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --subtle-button-bg-hover: rgba(232, 234, 237, 0.08);
+  --subtle-button-text: #e8eaed;
 }
 
 @media (orientation: portrait) {

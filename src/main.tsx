@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { LoaderCircle, Search, X } from "lucide-react";
+import { LoaderCircle, Moon, Search, Sun, X } from "lucide-react";
 import "./styles.css";
 
 const mockTelegramUser = null as
@@ -44,6 +44,18 @@ type ResolveResponse = {
   status: ValidationState["status"];
   suggestions: Suggestion[];
 };
+
+type ThemeMode = "light" | "dark";
+
+function getInitialThemeMode(): ThemeMode {
+  const storedTheme = window.localStorage.getItem("weakipedia-theme");
+
+  if (storedTheme === "light" || storedTheme === "dark") {
+    return storedTheme;
+  }
+
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
 
 function toValidationState(result: ResolveResponse): ValidationState {
   if (result.status === "valid") {
@@ -112,6 +124,7 @@ function displayValidationMessage(
 
 function App() {
   const user = mockTelegramUser;
+  const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialThemeMode);
   const [articleUrl, setArticleUrl] = useState("");
   const [selectedSuggestionUrl, setSelectedSuggestionUrl] = useState("");
   const [selectedCreateValue, setSelectedCreateValue] = useState("");
@@ -127,6 +140,8 @@ function App() {
   const showCreateSuggestion =
     suggestions.length > 0 && validation.status !== "valid" && Boolean(searchTerm) && !hasExactSuggestion;
   const hasSearchValue = articleUrl.length > 0;
+  const nextThemeMode = themeMode === "light" ? "dark" : "light";
+  const ThemeIcon = themeMode === "light" ? Moon : Sun;
 
   useEffect(() => {
     const virtualKeyboard = (navigator as NavigatorWithVirtualKeyboard).virtualKeyboard;
@@ -135,6 +150,11 @@ function App() {
       virtualKeyboard.overlaysContent = true;
     }
   }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = themeMode;
+    window.localStorage.setItem("weakipedia-theme", themeMode);
+  }, [themeMode]);
 
   useEffect(() => {
     function updatePortraitPadding() {
@@ -195,6 +215,10 @@ function App() {
     }
   }
 
+  function toggleTheme() {
+    setThemeMode(nextThemeMode);
+  }
+
   useEffect(() => {
     const trimmed = articleUrl.trim();
 
@@ -248,18 +272,29 @@ function App() {
   return (
     <div className="page">
       <header className="topbar">
-        {user ? (
-          <div className="account">
-            <button className="logout-button" type="button">
-              Logout
-            </button>
-            <img className="avatar" src={user.photoUrl} alt={user.name} />
-          </div>
-        ) : (
-          <button className="login-button" type="button">
-            Login / Sign up
+        <div className="account">
+          <button
+            className="theme-button"
+            type="button"
+            aria-label={`Switch to ${nextThemeMode} mode`}
+            title={`Switch to ${nextThemeMode} mode`}
+            onClick={toggleTheme}
+          >
+            <ThemeIcon aria-hidden="true" strokeWidth={2} />
           </button>
-        )}
+          {user ? (
+            <>
+              <button className="logout-button" type="button">
+                Logout
+              </button>
+              <img className="avatar" src={user.photoUrl} alt={user.name} />
+            </>
+          ) : (
+            <button className="login-button" type="button">
+              Login / Sign up
+            </button>
+          )}
+        </div>
       </header>
 
       <main className="search-shell" aria-labelledby="page-title">
