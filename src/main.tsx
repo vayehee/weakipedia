@@ -17,6 +17,12 @@ type ParsedProjectUrl = {
   title: string;
 };
 
+type Suggestion = {
+  description: string;
+  title: string;
+  url: string;
+};
+
 type ParseError =
   | { error: "caseA" }
   | { error: "caseB"; kind: ProjectKind }
@@ -46,6 +52,14 @@ function validationMessage(error: ParseError) {
   }
 
   return `URL need to point to an existing ${projectName(error.kind)} asset/article/record/page.`;
+}
+
+function canonicalWikipediaUrl(host: string, title: string) {
+  return `https://${host}/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`;
+}
+
+function canonicalWikidataUrl(entityId: string) {
+  return `https://www.wikidata.org/wiki/${entityId}`;
 }
 
 function isWikipediaHost(host: string) {
@@ -131,7 +145,38 @@ async function validateWikipediaUrl(parsed: ParsedProjectUrl, signal: AbortSigna
 
   const page = Object.values(data.query?.pages ?? {})[0];
 
-  return Boolean(page && !page.missing && (page.ns === 0 || page.ns === 2));
+  return Boolean(page && !("missing" in page) && (page.ns === 0 || page.ns === 2));
+}
+
+async function searchWikipedia(parsed: ParsedProjectUrl, signal: AbortSignal) {
+  const api = new URL(`https://${parsed.host}/w/api.php`);
+  api.search = new URLSearchParams({
+    action: "query",
+    format: "json",
+    origin: "*",
+    list: "search",
+    srnamespace: "0|2",
+    srlimit: "5",
+    srsearch: parsed.title,
+  }).toString();
+
+  const response = await fetch(api, { signal });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const data = (await response.json()) as {
+    query?: {
+      search?: Array<{ snippet?: string; title: string }>;
+    };
+  };
+
+  return (data.query?.search ?? []).map((result) => ({
+    description: result.snippet?.replace(/<[^>]*>/g, "") ?? "",
+    title: result.title,
+    url: canonicalWikipediaUrl(parsed.host, result.title),
+  }));
 }
 
 async function validateWikidataUrl(parsed: ParsedProjectUrl, signal: AbortSignal) {
@@ -160,12 +205,41 @@ async function validateWikidataUrl(parsed: ParsedProjectUrl, signal: AbortSignal
     entities?: Record<string, { missing?: string }>;
   };
 
-  return Boolean(data.entities?.[entityId] && !data.entities[entityId].missing);
+  return Boolean(data.entities?.[entityId] && !("missing" in data.entities[entityId]));
+}
+
+async function searchWikidata(parsed: ParsedProjectUrl, signal: AbortSignal) {
+  const api = new URL("https://www.wikidata.org/w/api.php");
+  api.search = new URLSearchParams({
+    action: "wbsearchentities",
+    format: "json",
+    language: "en",
+    limit: "5",
+    origin: "*",
+    search: parsed.title,
+  }).toString();
+
+  const response = await fetch(api, { signal });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const data = (await response.json()) as {
+    search?: Array<{ description?: string; id: string; label?: string }>;
+  };
+
+  return (data.search ?? []).map((result) => ({
+    description: result.description ?? result.id,
+    title: result.label ? `${result.label} (${result.id})` : result.id,
+    url: canonicalWikidataUrl(result.id),
+  }));
 }
 
 function App() {
   const user = mockTelegramUser;
   const [articleUrl, setArticleUrl] = useState("");
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [validation, setValidation] = useState<ValidationState>({
     status: "idle",
     message: "",
@@ -182,11 +256,13 @@ function App() {
 
   useEffect(() => {
     if (!articleUrl.trim()) {
+      setSuggestions([]);
       setValidation({ status: "idle", message: "" });
       return;
     }
 
     if (!parsedUrl || "error" in parsedUrl) {
+      setSuggestions([]);
       setValidation({
         status: "invalid",
         message: validationMessage(parsedUrl ?? { error: "caseA" }),
@@ -197,26 +273,33 @@ function App() {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => {
       setValidation({ status: "checking", message: "" });
+      setSuggestions([]);
 
       const validator =
         parsedUrl.kind === "wikipedia" ? validateWikipediaUrl : validateWikidataUrl;
+      const searcher = parsedUrl.kind === "wikipedia" ? searchWikipedia : searchWikidata;
 
       validator(parsedUrl, controller.signal)
-        .then((isValid) => {
-          setValidation(
-            isValid
-              ? { status: "valid", message: "" }
-              : {
-                  status: "invalid",
-                  message: validationMessage({ error: "caseC", kind: parsedUrl.kind }),
-                },
-          );
+        .then(async (isValid) => {
+          if (isValid) {
+            setSuggestions([]);
+            setValidation({ status: "valid", message: "" });
+            return;
+          }
+
+          const nextSuggestions = await searcher(parsedUrl, controller.signal);
+          setSuggestions(nextSuggestions);
+          setValidation({
+            status: "invalid",
+            message: validationMessage({ error: "caseC", kind: parsedUrl.kind }),
+          });
         })
         .catch((error: unknown) => {
           if ((error as Error).name === "AbortError") {
             return;
           }
 
+          setSuggestions([]);
           setValidation({
             status: "invalid",
             message: validationMessage({ error: "caseC", kind: parsedUrl.kind }),
@@ -278,6 +361,23 @@ function App() {
               Submit
             </button>
           </div>
+          {suggestions.length > 0 ? (
+            <div className="suggestions-tray" role="listbox" aria-label="Search suggestions">
+              {suggestions.map((suggestion) => (
+                <button
+                  className="suggestion-option"
+                  key={suggestion.url}
+                  type="button"
+                  onClick={() => {
+                    setArticleUrl(suggestion.url);
+                  }}
+                >
+                  <span className="suggestion-title">{suggestion.title}</span>
+                  <span className="suggestion-description">{suggestion.description}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
           <p
             className={`validation-message ${
               validation.status === "invalid" ? "is-error" : ""

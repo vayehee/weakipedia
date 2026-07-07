@@ -23,6 +23,9 @@
   --field-bg: #ffffff;
   --field-border: #dfe1e5;
   --field-shadow: 0 1px 6px rgba(32, 33, 36, 0.18);
+  --tray-bg: #ffffff;
+  --tray-border: #dfe1e5;
+  --tray-hover-bg: #f8fafd;
   --button-bg: #1a73e8;
   --button-bg-hover: #1b66c9;
   --button-text: #ffffff;
@@ -224,6 +227,58 @@ body {
   outline-offset: 2px;
 }
 
+.suggestions-tray {
+  width: calc(100% - 100px);
+  max-width: 620px;
+  margin: 8px 100px 0 0;
+  overflow: hidden;
+  border: 1px solid var(--tray-border);
+  border-radius: 16px;
+  background: var(--tray-bg);
+  box-shadow: var(--field-shadow);
+  text-align: left;
+}
+
+.suggestion-option {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--tray-border);
+  padding: 10px 16px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.suggestion-option:last-child {
+  border-bottom: 0;
+}
+
+.suggestion-option:hover,
+.suggestion-option:focus-visible {
+  background: var(--tray-hover-bg);
+  outline: none;
+}
+
+.suggestion-title,
+.suggestion-description {
+  display: block;
+}
+
+.suggestion-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.suggestion-description {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
 .validation-message {
   min-height: 20px;
   margin: 10px 0 0;
@@ -245,6 +300,9 @@ body {
     --field-bg: #202124;
     --field-border: #5f6368;
     --field-shadow: none;
+    --tray-bg: #202124;
+    --tray-border: #5f6368;
+    --tray-hover-bg: #2b2c2f;
     --button-bg: #8ab4f8;
     --button-bg-hover: #aecbfa;
     --button-text: #202124;
@@ -277,5 +335,10 @@ body {
   .submit-button {
     min-width: 78px;
     padding: 0 12px;
+  }
+
+  .suggestions-tray {
+    width: 100%;
+    margin-right: 0;
   }
 }
