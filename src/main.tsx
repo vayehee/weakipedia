@@ -85,6 +85,25 @@ function exactSearchTermSuggestions(suggestions: Suggestion[], searchTerm: strin
   return suggestions.filter((suggestion) => suggestionTitleMatchesSearchTerm(suggestion, searchTerm));
 }
 
+function displayValidationMessage(
+  validation: ValidationState,
+  hasExactSuggestion: boolean,
+  showCreateSuggestion: boolean,
+) {
+  if (
+    validation.status === "invalid" &&
+    validation.message === "Choose a Wikipedia or Wikidata result."
+  ) {
+    return showCreateSuggestion
+      ? "Select a match or create one."
+      : hasExactSuggestion
+        ? "Select a match and click Enter."
+        : validation.message;
+  }
+
+  return validation.message;
+}
+
 function App() {
   const user = mockTelegramUser;
   const [articleUrl, setArticleUrl] = useState("");
@@ -100,7 +119,7 @@ function App() {
     suggestionTitleMatchesSearchTerm(suggestion, searchTerm),
   );
   const showCreateSuggestion =
-    suggestions.length > 0 && validation.status !== "valid" && searchTerm && !hasExactSuggestion;
+    suggestions.length > 0 && validation.status !== "valid" && Boolean(searchTerm) && !hasExactSuggestion;
 
   useEffect(() => {
     const trimmed = articleUrl.trim();
@@ -284,7 +303,7 @@ function App() {
                 <span>Checking...</span>
               </span>
             ) : (
-              validation.message
+              displayValidationMessage(validation, hasExactSuggestion, showCreateSuggestion)
             )}
           </p>
         </form>
