@@ -1,0 +1,1 @@
+"""Weakipedia Wikimedia search service."""
