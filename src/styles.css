@@ -34,6 +34,7 @@
   --button-disabled-bg: #f1f3f4;
   --button-disabled-text: #9aa0a6;
   --error-text: #d93025;
+  --search-shell-portrait-padding-top: 15vh;
   --subtle-button-bg: transparent;
   --subtle-button-bg-hover: rgba(60, 64, 67, 0.08);
   --subtle-button-text: #3c4043;
@@ -126,7 +127,7 @@ body {
   flex-direction: column;
   align-items: center;
   width: 100%;
-  padding: clamp(72px, 15vh, 150px) 0 48px;
+  padding: 15vh 0 48px;
   text-align: center;
 }
 
@@ -465,7 +466,7 @@ body {
   }
 
   .search-shell {
-    padding-top: calc((100vw - 450px) * 0.24);
+    padding-top: var(--search-shell-portrait-padding-top);
   }
 
   .login-button {

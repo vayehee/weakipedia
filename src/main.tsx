@@ -122,6 +122,34 @@ function App() {
     suggestions.length > 0 && validation.status !== "valid" && Boolean(searchTerm) && !hasExactSuggestion;
   const hasSearchValue = articleUrl.length > 0;
 
+  useEffect(() => {
+    function updatePortraitPadding() {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      let paddingTop = height * 0.15;
+
+      if (width <= height) {
+        const range = Math.max(height - 450, 1);
+        const progress = Math.max(0, Math.min(1, (width - 450) / range));
+        paddingTop = height * 0.15 * progress;
+      }
+
+      document.documentElement.style.setProperty(
+        "--search-shell-portrait-padding-top",
+        `${paddingTop}px`,
+      );
+    }
+
+    updatePortraitPadding();
+    window.addEventListener("resize", updatePortraitPadding);
+    window.addEventListener("orientationchange", updatePortraitPadding);
+
+    return () => {
+      window.removeEventListener("resize", updatePortraitPadding);
+      window.removeEventListener("orientationchange", updatePortraitPadding);
+    };
+  }, []);
+
   function resetSearch() {
     setArticleUrl("");
     setSelectedSuggestionUrl("");
