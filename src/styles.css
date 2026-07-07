@@ -465,7 +465,7 @@ body {
   }
 
   .search-shell {
-    padding-top: clamp(64px, 12vh, 92px);
+    padding-top: clamp(0px, calc((100vw - 450px) * 0.24), 92px);
   }
 
   .login-button {
@@ -479,6 +479,12 @@ body {
   .suggestions-tray {
     width: 100%;
     margin-right: 0;
+  }
+}
+
+@media (max-width: 449.98px) {
+  .search-shell {
+    padding-top: clamp(0px, 0vh, 0px);
   }
 }
 
