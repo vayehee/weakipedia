@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { Search } from "lucide-react";
 import "./styles.css";
 
 const mockTelegramUser = null as
@@ -178,17 +179,20 @@ function App() {
           }}
         >
           <div className="input-row">
-            <input
-              aria-label="Wikipedia article URL"
-              className="url-input"
-              placeholder="Wikipedia article URL"
-              type="text"
-              value={articleUrl}
-              onChange={(event) => {
-                setSelectedSuggestionUrl("");
-                setArticleUrl(event.target.value);
-              }}
-            />
+            <div className="input-field">
+              <Search className="input-icon" aria-hidden="true" strokeWidth={2} />
+              <input
+                aria-label="Wikipedia article URL"
+                className="url-input"
+                placeholder="Wikipedia article URL"
+                type="text"
+                value={articleUrl}
+                onChange={(event) => {
+                  setSelectedSuggestionUrl("");
+                  setArticleUrl(event.target.value);
+                }}
+              />
+            </div>
             <button className="submit-button" type="submit" disabled={!canSubmit}>
               Submit
             </button>
