@@ -548,6 +548,19 @@ async def resolve_input(value: str) -> ResolveResponse:
     ) as client:
         if not looks_like_url(trimmed):
             suggestions = await search_all_projects(client, trimmed)
+            exact_suggestions = [
+                suggestion
+                for suggestion in suggestions
+                if suggestion_title_matches_query(suggestion, trimmed)
+            ]
+            if exact_suggestions:
+                return ResolveResponse(
+                    canSubmit=True,
+                    message="",
+                    status="valid",
+                    suggestions=exact_suggestions,
+                )
+
             return ResolveResponse(
                 canSubmit=False,
                 message=(
