@@ -491,6 +491,10 @@ body {
   .brand-byline-layer {
     bottom: max(-0.65em, calc(-0.5em - (752px - 100vw) * 0.00723));
   }
+
+  .brand-byline-favicon {
+    margin-left: max(0em, calc(0.23em - (752px - 100vw) * 0.01108));
+  }
 }
 
 @media (max-width: 449.98px) {
