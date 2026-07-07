@@ -131,6 +131,18 @@ body {
   line-height: 1.5;
 }
 
+.tagline strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.source-favicon {
+  width: 18px;
+  height: 18px;
+  margin: 0 4px 0 2px;
+  vertical-align: -3px;
+}
+
 .search-form {
   width: min(720px, 100%);
 }

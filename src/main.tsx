@@ -33,7 +33,17 @@ function App() {
         <h1 id="page-title" className="brand">
           Weakipedia
         </h1>
-        <p className="tagline">Temporary tagline for the Weakipedia experience.</p>
+        <p className="tagline">
+          In the age of AI,{" "}
+          <img
+            className="source-favicon"
+            src="https://en.wikipedia.org/favicon.ico"
+            alt=""
+            aria-hidden="true"
+          />
+          <strong>Wikipedia</strong> is paramount… but flawed. You have the power to
+          fix it!
+        </p>
         <form className="search-form" role="search">
           <div className="input-row">
             <input
