@@ -131,12 +131,22 @@ body {
   line-height: 1.5;
 }
 
-.tagline strong {
+.tagline strong:first-of-type {
   color: inherit;
   font-family: "Linux Libertine", Georgia, "Times New Roman", serif;
   font-weight: 900;
   text-shadow: 0 0 0 currentColor;
   -webkit-text-stroke: 0.35px currentColor;
+}
+
+.tagline strong:last-of-type {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.tagline u {
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
 }
 
 .search-form {
