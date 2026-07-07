@@ -156,7 +156,7 @@ function App() {
           </div>
         </div>
         <p className="tagline">
-          In the age of AI,{" "}
+          In the Artificial Intelligence age,{" "}
           <span className="wiki-wordmark" aria-label="Wikipedia">
             <span className="wiki-wordmark-tall">W</span>
             <span>I</span>
@@ -168,7 +168,7 @@ function App() {
             <span>I</span>
             <span className="wiki-wordmark-tall">A</span>
           </span>{" "}
-          is <u>irreplaceable</u>... yet <u>flawed</u>. <strong>Fix it!</strong>
+          is <u>paramount</u>... but <u>flawed</u>. <strong>Fix it!</strong>
         </p>
         <form
           className="search-form"
