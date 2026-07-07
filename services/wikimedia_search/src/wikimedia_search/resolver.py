@@ -4,6 +4,7 @@ import asyncio
 import html
 import re
 import time
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import quote, unquote, urlparse
@@ -133,7 +134,12 @@ def parse_project_url(value: str) -> ParsedProjectUrl | ParseError:
 
 
 def normalize_text(value: str) -> str:
-    return re.sub(r"\s+", " ", value.casefold()).strip()
+    without_accents = "".join(
+        character
+        for character in unicodedata.normalize("NFKD", value)
+        if not unicodedata.combining(character)
+    )
+    return re.sub(r"\s+", " ", without_accents.casefold()).strip()
 
 
 def clean_snippet(value: str | None) -> str:
