@@ -146,7 +146,7 @@ body {
 
 .tagline u {
   border-bottom: 1px solid currentColor;
-  padding-bottom: 1px;
+  padding-bottom: 0;
   text-decoration: none;
 }
 
