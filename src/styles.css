@@ -160,6 +160,11 @@ body {
   white-space: nowrap;
 }
 
+.brand-byline-by {
+  font-family: "Linux Libertine", Georgia, "Times New Roman", serif;
+  font-style: italic;
+}
+
 .tagline {
   max-width: 620px;
   margin: 24px 0 28px;

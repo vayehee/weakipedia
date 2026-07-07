@@ -144,7 +144,9 @@ function App() {
             Weakipedia
           </div>
           <div className="brand-byline-layer" aria-hidden="true">
-            <div className="brand-byline">by Vayehee</div>
+            <div className="brand-byline">
+              <span className="brand-byline-by">by</span> Vayehee
+            </div>
           </div>
         </div>
         <p className="tagline">
