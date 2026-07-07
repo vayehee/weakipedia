@@ -393,6 +393,24 @@ body {
   color: var(--error-text);
 }
 
+.checking-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.checking-spinner {
+  width: 14px;
+  height: 14px;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --page-bg: #f6f7f8;

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Search } from "lucide-react";
+import { LoaderCircle, Search } from "lucide-react";
 import "./styles.css";
 
 const mockTelegramUser = null as
@@ -232,7 +232,14 @@ function App() {
             }`}
             aria-live="polite"
           >
-            {validation.status === "checking" ? "Checking..." : validation.message}
+            {validation.status === "checking" ? (
+              <span className="checking-status">
+                <LoaderCircle className="checking-spinner" aria-hidden="true" />
+                <span>Checking...</span>
+              </span>
+            ) : (
+              validation.message
+            )}
           </p>
         </form>
       </main>
