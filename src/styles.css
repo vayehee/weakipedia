@@ -161,8 +161,9 @@ body {
 }
 
 .brand-byline-by {
-  font-family: "Linux Libertine", Georgia, "Times New Roman", serif;
+  font-family: Georgia, "Times New Roman", serif;
   font-style: italic;
+  font-size: 1rem;
 }
 
 .tagline {
