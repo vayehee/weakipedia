@@ -137,7 +137,7 @@ body {
 
 .brand-byline {
   position: absolute;
-  top: 71%;
+  bottom: 0;
   left: 55.5%;
   color: rgb(95 99 104);
   font-family:
