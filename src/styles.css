@@ -26,8 +26,8 @@
   --tray-bg: #ffffff;
   --tray-border: #dfe1e5;
   --tray-hover-bg: #f8fafd;
-  --button-bg: #1a73e8;
-  --button-bg-hover: #1b66c9;
+  --button-bg: #1da1f2;
+  --button-bg-hover: #1da1f2;
   --button-text: #ffffff;
   --button-disabled-bg: #f1f3f4;
   --button-disabled-text: #9aa0a6;
@@ -379,9 +379,9 @@ body {
     --tray-bg: #202124;
     --tray-border: #5f6368;
     --tray-hover-bg: #2b2c2f;
-    --button-bg: #8ab4f8;
-    --button-bg-hover: #aecbfa;
-    --button-text: #202124;
+    --button-bg: #1da1f2;
+    --button-bg-hover: #1da1f2;
+    --button-text: #ffffff;
     --button-disabled-bg: #303134;
     --button-disabled-text: #80868b;
     --error-text: #f28b82;
