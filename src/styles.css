@@ -34,10 +34,6 @@
   --button-disabled-bg: #f1f3f4;
   --button-disabled-text: #9aa0a6;
   --error-text: #d93025;
-  --brand-byline-favicon-margin-left: 0.23em;
-  --brand-byline-portrait-bottom: -0.5em;
-  --brand-font-size: min(6.6rem, calc(14.68vw - 4.7px));
-  --brand-width: min(504px, calc(70vw - 22.4px));
   --search-shell-portrait-padding-top: 15vh;
   --subtle-button-bg: transparent;
   --subtle-button-bg-hover: rgba(60, 64, 67, 0.08);
@@ -138,7 +134,7 @@ body {
 .brand {
   position: relative;
   display: inline-grid;
-  width: var(--brand-width);
+  width: min(504px, calc(70vw - 22.4px));
   margin: 0;
   color: var(--text);
   line-height: 1;
@@ -148,7 +144,7 @@ body {
   grid-area: 1 / 1;
   width: 100%;
   font-family: "Linux Libertine", Georgia, "Times New Roman", serif;
-  font-size: var(--brand-font-size);
+  font-size: min(6.6rem, calc(14.68vw - 4.7px));
   font-weight: 400;
   line-height: 1;
 }
@@ -181,7 +177,7 @@ body {
 
 .brand-byline-favicon {
   align-self: center;
-  margin-left: var(--brand-byline-favicon-margin-left);
+  margin-left: 0.23em;
   margin-right: -0.2em;
   margin-top: 2px;
   width: 0.86em;
@@ -474,7 +470,7 @@ body {
   }
 
   .brand-byline-layer {
-    bottom: var(--brand-byline-portrait-bottom);
+    bottom: -0.5em;
   }
 
   .login-button {
@@ -491,40 +487,14 @@ body {
   }
 }
 
-:root[data-mobile-device="true"] .topbar {
-  min-height: 58px;
-  padding: 10px 12px;
-}
-
-:root[data-mobile-device="true"] .search-shell {
-  padding-top: var(--search-shell-portrait-padding-top);
-}
-
-:root[data-mobile-device="true"] .brand-byline-layer {
-  bottom: var(--brand-byline-portrait-bottom);
-}
-
-:root[data-mobile-device="true"] .login-button {
-  padding: 0 14px;
-}
-
-:root[data-mobile-device="true"] .input-row {
-  gap: 8px;
-}
-
-:root[data-mobile-device="true"] .suggestions-tray {
-  width: 100%;
-  margin-right: 0;
-}
-
-@media (orientation: portrait) {
-  .brand-byline-favicon {
-    margin-left: var(--brand-byline-favicon-margin-left);
+@media (orientation: portrait) and (max-width: 751.98px) {
+  .brand-byline-layer {
+    bottom: max(-0.65em, calc(-0.5em - (752px - 100vw) * 0.00723));
   }
-}
 
-:root[data-mobile-device="true"] .brand-byline-favicon {
-  margin-left: var(--brand-byline-favicon-margin-left);
+  .brand-byline-favicon {
+    margin-left: max(0em, calc(0.23em - (752px - 100vw) * 0.01108));
+  }
 }
 
 @media (max-width: 449.98px) {
