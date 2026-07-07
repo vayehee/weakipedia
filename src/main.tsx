@@ -19,6 +19,8 @@ type ParsedProjectUrl = {
 
 type Suggestion = {
   description: string;
+  faviconUrl: string;
+  source: string;
   title: string;
   url: string;
 };
@@ -37,6 +39,31 @@ type ValidationState =
 const ERROR_MESSAGES = {
   caseA: "URL need to point to a Wikipedia or a Wikidata project.",
 } as const;
+
+const FALLBACK_WIKIPEDIA_SEARCH_HOSTS = [
+  "en.wikipedia.org",
+  "fr.wikipedia.org",
+  "de.wikipedia.org",
+  "es.wikipedia.org",
+  "it.wikipedia.org",
+  "pt.wikipedia.org",
+  "nl.wikipedia.org",
+  "pl.wikipedia.org",
+  "ru.wikipedia.org",
+  "uk.wikipedia.org",
+  "ar.wikipedia.org",
+  "he.wikipedia.org",
+  "fa.wikipedia.org",
+  "hi.wikipedia.org",
+  "ja.wikipedia.org",
+  "ko.wikipedia.org",
+  "zh.wikipedia.org",
+  "id.wikipedia.org",
+  "tr.wikipedia.org",
+  "vi.wikipedia.org",
+] as const;
+
+let wikipediaHostsPromise: Promise<string[]> | null = null;
 
 function projectName(kind: ProjectKind) {
   return kind === "wikipedia" ? "Wikipedia" : "Wikidata";
@@ -62,6 +89,10 @@ function canonicalWikidataUrl(entityId: string) {
   return `https://www.wikidata.org/wiki/${entityId}`;
 }
 
+function faviconUrl(host: string) {
+  return `https://${host}/favicon.ico`;
+}
+
 function isWikipediaHost(host: string) {
   return /^[a-z0-9-]+\.wikipedia\.org$/.test(host);
 }
@@ -80,6 +111,16 @@ function titleFromPath(url: URL) {
   }
 
   return "";
+}
+
+function looksLikeUrl(value: string) {
+  const trimmed = value.trim();
+
+  return (
+    /^https?:\/\//i.test(trimmed) ||
+    trimmed.includes("wikipedia.org") ||
+    trimmed.includes("wikidata.org")
+  );
 }
 
 function parseProjectUrl(value: string): ParsedProjectUrl | ParseError {
@@ -118,6 +159,125 @@ function parseProjectUrl(value: string): ParsedProjectUrl | ParseError {
   }
 
   return { error: "caseA" };
+}
+
+function uniqueSuggestions(suggestions: Suggestion[]) {
+  const seen = new Set<string>();
+
+  return suggestions.filter((suggestion) => {
+    if (seen.has(suggestion.url)) {
+      return false;
+    }
+
+    seen.add(suggestion.url);
+    return true;
+  });
+}
+
+function cleanSnippet(value = "") {
+  const withoutTags = value.replace(/<[^>]*>/g, "");
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = withoutTags;
+  return textarea.value;
+}
+
+async function wikipediaSearchHosts() {
+  if (!wikipediaHostsPromise) {
+    wikipediaHostsPromise = fetch(
+      "https://meta.wikimedia.org/w/api.php?action=sitematrix&format=json&origin=*&smtype=language",
+    )
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Unable to load Wikimedia site matrix.");
+        }
+
+        return response.json() as Promise<{
+          sitematrix: Record<
+            string,
+            | {
+                site?: Array<{
+                  closed?: string;
+                  code: string;
+                  url: string;
+                }>;
+              }
+            | number
+          >;
+        }>;
+      })
+      .then((data) => {
+        const hosts = Object.values(data.sitematrix).flatMap((entry) => {
+          if (typeof entry !== "object" || !entry.site) {
+            return [];
+          }
+
+          return entry.site
+            .filter((site) => site.code === "wiki" && !("closed" in site))
+            .map((site) => {
+              try {
+                return new URL(site.url).hostname.toLowerCase();
+              } catch {
+                return "";
+              }
+            })
+            .filter((host) => isWikipediaHost(host));
+        });
+
+        const priorityRank = new Map(
+          FALLBACK_WIKIPEDIA_SEARCH_HOSTS.map((host, index) => [host, index]),
+        );
+        const uniqueHosts = [...new Set(hosts)];
+
+        return uniqueHosts.sort((left, right) => {
+          const leftPriority = priorityRank.get(
+            left as (typeof FALLBACK_WIKIPEDIA_SEARCH_HOSTS)[number],
+          );
+          const rightPriority = priorityRank.get(
+            right as (typeof FALLBACK_WIKIPEDIA_SEARCH_HOSTS)[number],
+          );
+
+          if (leftPriority === undefined && rightPriority === undefined) {
+            return left.localeCompare(right);
+          }
+
+          if (leftPriority === undefined) {
+            return 1;
+          }
+
+          if (rightPriority === undefined) {
+            return -1;
+          }
+
+          return leftPriority - rightPriority;
+        });
+      })
+      .catch(() => [...FALLBACK_WIKIPEDIA_SEARCH_HOSTS]);
+  }
+
+  return wikipediaHostsPromise;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  signal: AbortSignal,
+  mapper: (item: T) => Promise<R>,
+) {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+      while (nextIndex < items.length && !signal.aborted) {
+        const currentIndex = nextIndex;
+        const item = items[nextIndex];
+        nextIndex += 1;
+        results[currentIndex] = await mapper(item);
+      }
+    }),
+  );
+
+  return results.filter((result): result is R => Boolean(result));
 }
 
 async function validateWikipediaUrl(parsed: ParsedProjectUrl, signal: AbortSignal) {
@@ -173,9 +333,44 @@ async function searchWikipedia(parsed: ParsedProjectUrl, signal: AbortSignal) {
   };
 
   return (data.query?.search ?? []).map((result) => ({
-    description: result.snippet?.replace(/<[^>]*>/g, "") ?? "",
+    description: cleanSnippet(result.snippet),
+    faviconUrl: faviconUrl(parsed.host),
+    source: parsed.host,
     title: result.title,
     url: canonicalWikipediaUrl(parsed.host, result.title),
+  }));
+}
+
+async function searchWikipediaHost(host: string, query: string, signal: AbortSignal) {
+  const api = new URL(`https://${host}/w/api.php`);
+  api.search = new URLSearchParams({
+    action: "query",
+    format: "json",
+    origin: "*",
+    list: "search",
+    srnamespace: "0",
+    srlimit: "3",
+    srsearch: query,
+  }).toString();
+
+  const response = await fetch(api, { signal });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const data = (await response.json()) as {
+    query?: {
+      search?: Array<{ snippet?: string; title: string }>;
+    };
+  };
+
+  return (data.query?.search ?? []).map((result) => ({
+    description: cleanSnippet(result.snippet),
+    faviconUrl: faviconUrl(host),
+    source: host,
+    title: result.title,
+    url: canonicalWikipediaUrl(host, result.title),
   }));
 }
 
@@ -231,14 +426,35 @@ async function searchWikidata(parsed: ParsedProjectUrl, signal: AbortSignal) {
 
   return (data.search ?? []).map((result) => ({
     description: result.description ?? result.id,
+    faviconUrl: faviconUrl("www.wikidata.org"),
+    source: "wikidata.org",
     title: result.label ? `${result.label} (${result.id})` : result.id,
     url: canonicalWikidataUrl(result.id),
   }));
 }
 
+async function searchAllProjects(query: string, signal: AbortSignal) {
+  const hosts = await wikipediaSearchHosts();
+  const wikipediaSearches = mapWithConcurrency(hosts, 8, signal, (host) =>
+    searchWikipediaHost(host, query, signal).catch(() => []),
+  );
+  const wikidataSearch = searchWikidata(
+    { kind: "wikidata", host: "www.wikidata.org", title: query },
+    signal,
+  ).catch(() => []);
+
+  const [wikipediaResults, wikidataResults] = await Promise.all([
+    wikipediaSearches,
+    wikidataSearch,
+  ]);
+
+  return uniqueSuggestions([...wikipediaResults.flat(), ...wikidataResults]).slice(0, 10);
+}
+
 function App() {
   const user = mockTelegramUser;
   const [articleUrl, setArticleUrl] = useState("");
+  const [selectedSuggestionUrl, setSelectedSuggestionUrl] = useState("");
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [validation, setValidation] = useState<ValidationState>({
     status: "idle",
@@ -255,10 +471,57 @@ function App() {
   }, [articleUrl]);
 
   useEffect(() => {
-    if (!articleUrl.trim()) {
+    const trimmed = articleUrl.trim();
+
+    if (!trimmed) {
+      setSelectedSuggestionUrl("");
       setSuggestions([]);
       setValidation({ status: "idle", message: "" });
       return;
+    }
+
+    if (trimmed === selectedSuggestionUrl) {
+      setSuggestions([]);
+      setValidation({ status: "valid", message: "" });
+      return;
+    }
+
+    if (!looksLikeUrl(trimmed)) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => {
+        setValidation({ status: "checking", message: "" });
+        searchAllProjects(trimmed, controller.signal)
+          .then((nextSuggestions) => {
+            if (controller.signal.aborted) {
+              return;
+            }
+
+            setSuggestions(nextSuggestions);
+            setValidation({
+              status: "invalid",
+              message:
+                nextSuggestions.length > 0
+                  ? "Choose a Wikipedia or Wikidata result."
+                  : "No Wikipedia or Wikidata results found.",
+            });
+          })
+          .catch((error: unknown) => {
+            if ((error as Error).name === "AbortError" || controller.signal.aborted) {
+              return;
+            }
+
+            setSuggestions([]);
+            setValidation({
+              status: "invalid",
+              message: "No Wikipedia or Wikidata results found.",
+            });
+          });
+      }, 350);
+
+      return () => {
+        controller.abort();
+        window.clearTimeout(timeout);
+      };
     }
 
     if (!parsedUrl || "error" in parsedUrl) {
@@ -281,6 +544,10 @@ function App() {
 
       validator(parsedUrl, controller.signal)
         .then(async (isValid) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+
           if (isValid) {
             setSuggestions([]);
             setValidation({ status: "valid", message: "" });
@@ -288,6 +555,11 @@ function App() {
           }
 
           const nextSuggestions = await searcher(parsedUrl, controller.signal);
+
+          if (controller.signal.aborted) {
+            return;
+          }
+
           setSuggestions(nextSuggestions);
           setValidation({
             status: "invalid",
@@ -295,7 +567,7 @@ function App() {
           });
         })
         .catch((error: unknown) => {
-          if ((error as Error).name === "AbortError") {
+          if ((error as Error).name === "AbortError" || controller.signal.aborted) {
             return;
           }
 
@@ -354,6 +626,7 @@ function App() {
               type="url"
               value={articleUrl}
               onChange={(event) => {
+                setSelectedSuggestionUrl("");
                 setArticleUrl(event.target.value);
               }}
             />
@@ -369,11 +642,23 @@ function App() {
                   key={suggestion.url}
                   type="button"
                   onClick={() => {
+                    setSelectedSuggestionUrl(suggestion.url);
+                    setSuggestions([]);
+                    setValidation({ status: "valid", message: "" });
                     setArticleUrl(suggestion.url);
                   }}
                 >
+                  <img
+                    className="suggestion-favicon"
+                    src={suggestion.faviconUrl}
+                    alt=""
+                    aria-hidden="true"
+                  />
                   <span className="suggestion-title">{suggestion.title}</span>
-                  <span className="suggestion-description">{suggestion.description}</span>
+                  <span className="suggestion-description">
+                    {suggestion.source}
+                    {suggestion.description ? ` - ${suggestion.description}` : ""}
+                  </span>
                 </button>
               ))}
             </div>

@@ -240,7 +240,9 @@ body {
 }
 
 .suggestion-option {
-  display: block;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  column-gap: 10px;
   width: 100%;
   border: 0;
   border-bottom: 1px solid var(--tray-border);
@@ -262,9 +264,20 @@ body {
   outline: none;
 }
 
+.suggestion-favicon {
+  grid-row: 1 / span 2;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+}
+
 .suggestion-title,
 .suggestion-description {
   display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .suggestion-title {
