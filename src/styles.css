@@ -19,7 +19,7 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --page-bg: #ffffff;
+  --page-bg: #f6f7f8;
   --text: #202124;
   --muted: #5f6368;
   --field-bg: #ffffff;
@@ -395,7 +395,7 @@ body {
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --page-bg: #202124;
+    --page-bg: #f6f7f8;
     --text: #e8eaed;
     --muted: #bdc1c6;
     --field-bg: #202124;
