@@ -29,7 +29,7 @@ type ValidationState =
   | { status: "valid"; message: "" };
 
 const ERROR_MESSAGES = {
-  caseA: "URL must point to a Wikipedia or a Wikidata project.",
+  caseA: "URL need to point to a Wikipedia or a Wikidata project.",
 } as const;
 
 function projectName(kind: ProjectKind) {
@@ -42,10 +42,10 @@ function validationMessage(error: ParseError) {
   }
 
   if (error.error === "caseB") {
-    return `URL must point to a ${projectName(error.kind)} asset/article/record/page.`;
+    return `URL need to point to a ${projectName(error.kind)} asset/article/record/page.`;
   }
 
-  return `URL must point to an existing ${projectName(error.kind)} asset/article/record/page.`;
+  return `URL need to point to an existing ${projectName(error.kind)} asset/article/record/page.`;
 }
 
 function isWikipediaHost(host: string) {
