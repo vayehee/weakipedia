@@ -489,7 +489,7 @@ body {
   }
 }
 
-@media (orientation: portrait) and (max-width: 420px) {
+@media (orientation: portrait) and (max-width: 419.98px) {
   .brand {
     width: 288px;
   }
