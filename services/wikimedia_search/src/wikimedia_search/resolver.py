@@ -201,6 +201,16 @@ def filter_and_rank_suggestions(suggestions: list[Suggestion], query: str) -> li
     return [suggestion for _, suggestion in scored]
 
 
+def suggestion_title_matches_query(suggestion: Suggestion, query: str) -> bool:
+    normalized_query = normalize_text(query)
+    normalized_title = normalize_text(suggestion.title)
+    normalized_title_without_entity_id = normalize_text(
+        re.sub(r"\s+\((?:Q|P|L)\d+\)$", "", suggestion.title, flags=re.IGNORECASE)
+    )
+
+    return normalized_query in {normalized_title, normalized_title_without_entity_id}
+
+
 def rank_user_suggestions(suggestions: list[Suggestion], user_name: str) -> list[Suggestion]:
     normalized_user_name = normalize_text(user_name)
     priority = {host: index for index, host in enumerate(PRIORITY_WIKIPEDIA_HOSTS)}
@@ -573,6 +583,19 @@ async def resolve_input(value: str) -> ResolveResponse:
                 if parsed.kind == "wikipedia"
                 else await search_wikidata(client, parsed.title)
             )
+            case_insensitive_matches = [
+                suggestion
+                for suggestion in suggestions
+                if suggestion_title_matches_query(suggestion, parsed.title)
+            ]
+            if case_insensitive_matches:
+                return ResolveResponse(
+                    canSubmit=True,
+                    message="",
+                    status="valid",
+                    suggestions=case_insensitive_matches,
+                )
+
             return ResolveResponse(
                 canSubmit=False,
                 message=validation_message("caseC", parsed.kind),

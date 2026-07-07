@@ -83,7 +83,7 @@ async function resolveWikimediaInput(input: string, signal: AbortSignal) {
 }
 
 function normalizeSuggestionText(value: string) {
-  return value.toLocaleLowerCase().normalize("NFKC").replace(/\s+/g, " ").trim();
+  return value.normalize("NFKC").toLocaleLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function suggestionTitleMatchesSearchTerm(suggestion: Suggestion, searchTerm: string) {
