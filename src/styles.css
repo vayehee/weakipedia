@@ -365,6 +365,10 @@ body {
   font-weight: 700;
 }
 
+.suggestion-create-option .suggestion-title {
+  font-weight: 400;
+}
+
 .suggestion-favicon {
   grid-row: 1 / span 2;
   width: 18px;
