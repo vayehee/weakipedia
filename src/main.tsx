@@ -35,14 +35,14 @@ function App() {
         </h1>
         <p className="tagline">Temporary tagline for the Weakipedia experience.</p>
         <form className="search-form" role="search">
-          <input
-            aria-label="Wikipedia article URL"
-            className="url-input"
-            inputMode="url"
-            placeholder="Wikipedia article URL"
-            type="url"
-          />
-          <div className="form-actions">
+          <div className="input-row">
+            <input
+              aria-label="Wikipedia article URL"
+              className="url-input"
+              inputMode="url"
+              placeholder="Wikipedia article URL"
+              type="url"
+            />
             <button className="submit-button" type="submit">
               Submit
             </button>
