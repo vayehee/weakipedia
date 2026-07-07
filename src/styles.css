@@ -29,6 +29,9 @@
   --subtle-button-bg: transparent;
   --subtle-button-bg-hover: rgba(60, 64, 67, 0.08);
   --subtle-button-text: #3c4043;
+  --search-button-bg: #f8f9fa;
+  --search-button-border: #dadce0;
+  --search-button-text: #3c4043;
 }
 
 * {
@@ -158,6 +161,36 @@ body {
   opacity: 1;
 }
 
+.form-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 28px;
+}
+
+.submit-button {
+  min-width: 96px;
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0 18px;
+  background: var(--search-button-bg);
+  color: var(--search-button-text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.submit-button:hover,
+.submit-button:focus-visible {
+  border-color: var(--search-button-border);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+}
+
+.submit-button:focus-visible {
+  outline: 1px solid var(--button-bg);
+  outline-offset: 2px;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --page-bg: #202124;
@@ -171,6 +204,9 @@ body {
     --button-text: #202124;
     --subtle-button-bg-hover: rgba(232, 234, 237, 0.08);
     --subtle-button-text: #e8eaed;
+    --search-button-bg: #303134;
+    --search-button-border: #5f6368;
+    --search-button-text: #e8eaed;
   }
 }
 

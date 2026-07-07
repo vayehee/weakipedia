@@ -42,6 +42,11 @@ function App() {
             placeholder="Wikipedia article URL"
             type="url"
           />
+          <div className="form-actions">
+            <button className="submit-button" type="submit">
+              Submit
+            </button>
+          </div>
         </form>
       </main>
     </div>
