@@ -19,9 +19,17 @@ npm run build
 
 The intended Google Cloud project name is `Weakipedia`. The project ID is tracked separately because Google Cloud project IDs must be globally unique.
 
-Useful commands:
+Current local GitHub repository:
+
+```text
+https://github.com/vayehee/weakipedia
+```
+
+Useful Google Cloud commands after refreshing `gcloud` auth:
 
 ```bash
+gcloud auth login
+gcloud projects create PROJECT_ID --name="Weakipedia"
 gcloud config set project PROJECT_ID
 gcloud projects describe PROJECT_ID
 ```
@@ -37,8 +45,8 @@ After the GitHub repository exists, enable Pages:
 3. Set Source to `GitHub Actions`.
 4. Push to `main`.
 
-The site path is configured for:
+The site is deployed at:
 
 ```text
-https://USERNAME.github.io/weakipedia/
+https://vayehee.github.io/weakipedia/
 ```
