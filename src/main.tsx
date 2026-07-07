@@ -145,7 +145,9 @@ function App() {
           </div>
           <div className="brand-byline-layer" aria-hidden="true">
             <div className="brand-byline">
-              <span className="brand-byline-by">by</span> Vayehee
+              <span className="brand-byline-by">by</span>
+              <img className="brand-byline-favicon" src="https://vayehee.com/favicon.ico" alt="" />
+              <span>Vayehee</span>
             </div>
           </div>
         </div>

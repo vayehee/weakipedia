@@ -149,6 +149,9 @@ body {
 }
 
 .brand-byline {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.24em;
   margin-left: 60%;
   color: #5f6368;
   font-family:
@@ -158,6 +161,12 @@ body {
   font-weight: 400;
   line-height: 1;
   white-space: nowrap;
+}
+
+.brand-byline-favicon {
+  align-self: center;
+  width: 0.86em;
+  height: 0.86em;
 }
 
 .brand-byline-by {
