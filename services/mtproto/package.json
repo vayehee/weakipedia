@@ -6,7 +6,8 @@
   "scripts": {
     "login": "tsx src/login.ts",
     "me": "tsx src/me.ts",
-    "send": "tsx src/send.ts"
+    "send": "tsx src/send.ts",
+    "set-profile": "tsx src/set-profile.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
