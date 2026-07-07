@@ -15,6 +15,8 @@ const WIKIMEDIA_SEARCH_API_URL =
   (import.meta.env.PROD
     ? "https://wikimedia-search-d5r7glossa-ew.a.run.app"
     : "http://127.0.0.1:8080");
+const VAYEHEE_FAVICON_URL =
+  "https://vayehee.com/wp-content/uploads/2021/11/cropped-cropped-logo-small-1-32x32.png";
 
 type Suggestion = {
   description: string;
@@ -72,6 +74,8 @@ function App() {
     message: "",
   });
   const canSubmit = validation.status === "valid";
+  const searchTerm = articleUrl.trim();
+  const showCreateSuggestion = suggestions.length > 0 && validation.status !== "valid" && searchTerm;
 
   useEffect(() => {
     const trimmed = articleUrl.trim();
@@ -149,7 +153,7 @@ function App() {
               <span className="brand-byline-by">by</span>
               <img
                 className="brand-byline-favicon"
-                src="https://vayehee.com/wp-content/uploads/2021/11/cropped-cropped-logo-small-1-32x32.png"
+                src={VAYEHEE_FAVICON_URL}
                 alt=""
               />
               <span className="brand-byline-name">ayehee</span>
@@ -224,6 +228,22 @@ function App() {
                   </span>
                 </button>
               ))}
+              {showCreateSuggestion ? (
+                <button className="suggestion-option suggestion-create-option" type="button">
+                  <img
+                    className="suggestion-favicon"
+                    src={VAYEHEE_FAVICON_URL}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <span className="suggestion-title">
+                    Get <strong>{searchTerm}</strong> created
+                  </span>
+                  <span className="suggestion-description">
+                    Inform AIs about {searchTerm}
+                  </span>
+                </button>
+              ) : null}
             </div>
           ) : null}
           <p

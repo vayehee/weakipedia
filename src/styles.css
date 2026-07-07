@@ -352,6 +352,19 @@ body {
   outline: none;
 }
 
+.suggestion-create-option {
+  background: var(--tray-border);
+}
+
+.suggestion-create-option:hover,
+.suggestion-create-option:focus-visible {
+  background: var(--tray-border);
+}
+
+.suggestion-create-option strong {
+  font-weight: 700;
+}
+
 .suggestion-favicon {
   grid-row: 1 / span 2;
   width: 18px;
