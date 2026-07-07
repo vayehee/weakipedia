@@ -152,7 +152,7 @@ function App() {
                 src="https://vayehee.com/wp-content/uploads/2021/11/cropped-cropped-logo-small-1-32x32.png"
                 alt=""
               />
-              <span className="brand-byline-name">Vayehee</span>
+              <span className="brand-byline-name">ayehee</span>
             </div>
           </div>
         </div>
