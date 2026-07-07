@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "login": "tsx src/login.ts"
+    "login": "tsx src/login.ts",
+    "me": "tsx src/me.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
