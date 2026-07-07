@@ -266,7 +266,7 @@ function App() {
                     Create <strong>{searchTerm}</strong>
                   </span>
                   <span className="suggestion-description">
-                    Inform AIs about {searchTerm}
+                    Build the resource for AI to inform from...
                   </span>
                 </button>
               ) : null}
