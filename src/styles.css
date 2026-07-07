@@ -26,6 +26,9 @@
   --button-bg: #1a73e8;
   --button-bg-hover: #1b66c9;
   --button-text: #ffffff;
+  --button-disabled-bg: #f1f3f4;
+  --button-disabled-text: #9aa0a6;
+  --error-text: #d93025;
   --subtle-button-bg: transparent;
   --subtle-button-bg-hover: rgba(60, 64, 67, 0.08);
   --subtle-button-text: #3c4043;
@@ -204,15 +207,34 @@ body {
     box-shadow 120ms ease;
 }
 
-.submit-button:hover,
-.submit-button:focus-visible {
+.submit-button:disabled {
+  background: var(--button-disabled-bg);
+  color: var(--button-disabled-text);
+  cursor: default;
+}
+
+.submit-button:not(:disabled):hover,
+.submit-button:not(:disabled):focus-visible {
   background: var(--button-bg-hover);
   box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3);
 }
 
-.submit-button:focus-visible {
+.submit-button:not(:disabled):focus-visible {
   outline: 1px solid var(--button-bg);
   outline-offset: 2px;
+}
+
+.validation-message {
+  min-height: 20px;
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.validation-message.is-error {
+  color: var(--error-text);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -226,6 +248,9 @@ body {
     --button-bg: #8ab4f8;
     --button-bg-hover: #aecbfa;
     --button-text: #202124;
+    --button-disabled-bg: #303134;
+    --button-disabled-text: #80868b;
+    --error-text: #f28b82;
     --subtle-button-bg-hover: rgba(232, 234, 237, 0.08);
     --subtle-button-text: #e8eaed;
   }
