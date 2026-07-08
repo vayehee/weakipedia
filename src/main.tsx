@@ -13,7 +13,7 @@ const mockTelegramUser = null as
 const WIKIMEDIA_SEARCH_API_URL =
   import.meta.env.VITE_WIKIMEDIA_SEARCH_API_URL ??
   (import.meta.env.PROD
-    ? "https://wikimedia-search-d5r7glossa-ew.a.run.app"
+    ? "https://wikimedia-search-420014165339.europe-west1.run.app"
     : "http://127.0.0.1:8080");
 const VAYEHEE_FAVICON_URL =
   "https://vayehee.com/wp-content/uploads/2021/11/cropped-cropped-logo-small-1-32x32.png";
@@ -39,11 +39,17 @@ type ValidationState =
   | { status: "invalid"; message: string }
   | { status: "valid"; message: "" };
 
+type SubmitState = "idle" | "submitting" | "error";
+
 type ResolveResponse = {
   canSubmit: boolean;
   message: string;
   status: ValidationState["status"];
   suggestions: Suggestion[];
+};
+
+type StaticTargetResponse = {
+  route: string;
 };
 
 type ThemeMode = "light" | "dark";
@@ -126,6 +132,28 @@ async function resolveWikimediaInput(input: string, signal: AbortSignal) {
   }
 
   return (await response.json()) as ResolveResponse;
+}
+
+async function createStaticTarget(selectedUrl: string) {
+  const api = new URL("/static-targets", WIKIMEDIA_SEARCH_API_URL);
+  const response = await fetch(api, {
+    body: JSON.stringify({ selectedUrl }),
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const error = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(error?.detail ?? "Unable to create this static target.");
+  }
+
+  return (await response.json()) as StaticTargetResponse;
+}
+
+function wikipediaCreateSlug(value: string) {
+  return value.trim().replace(/\s+/g, "_");
 }
 
 function normalizeSuggestionText(value: string) {
@@ -241,7 +269,8 @@ function App() {
   const [selectedSuggestionUrl, setSelectedSuggestionUrl] = useState("");
   const [selectedCreateValue, setSelectedCreateValue] = useState("");
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [submitState, setSubmitState] = useState<SubmitState>("idle");
+  const [submitError, setSubmitError] = useState("");
   const [validation, setValidation] = useState<ValidationState>({
     status: "idle",
     message: "",
@@ -303,7 +332,8 @@ function App() {
     setArticleUrl("");
     setSelectedSuggestionUrl("");
     setSelectedCreateValue("");
-    setIsSubmitted(false);
+    setSubmitState("idle");
+    setSubmitError("");
     setSuggestions([]);
     setValidation({ status: "idle", message: "" });
   }
@@ -311,7 +341,8 @@ function App() {
   function selectSuggestion(suggestion: Suggestion) {
     setSelectedSuggestionUrl(suggestion.url);
     setSelectedCreateValue("");
-    setIsSubmitted(false);
+    setSubmitState("idle");
+    setSubmitError("");
     setSuggestions([]);
     setValidation({ status: "valid", message: "" });
     setArticleUrl(suggestion.url);
@@ -321,18 +352,34 @@ function App() {
     const createValue = `Create: ${searchTerm}`;
     setSelectedSuggestionUrl("");
     setSelectedCreateValue(createValue);
-    setIsSubmitted(false);
+    setSubmitState("idle");
+    setSubmitError("");
     setSuggestions([]);
     setValidation({ status: "valid", message: "" });
     setArticleUrl(createValue);
   }
 
-  function submitSearch() {
-    if (!hasSelectedSearchValue) {
+  async function submitSearch() {
+    if (!hasSelectedSearchValue || submitState === "submitting") {
       return;
     }
 
-    setIsSubmitted(true);
+    setSubmitState("submitting");
+    setSubmitError("");
+
+    try {
+      if (selectedCreateValue && searchTerm === selectedCreateValue) {
+        const createSearchTerm = selectedCreateValue.replace(/^Create:\s*/i, "");
+        window.location.assign(`/create/${encodeURIComponent(wikipediaCreateSlug(createSearchTerm))}`);
+        return;
+      }
+
+      const target = await createStaticTarget(selectedSuggestionUrl);
+      window.location.assign(target.route);
+    } catch (error) {
+      setSubmitState("error");
+      setSubmitError((error as Error).message);
+    }
   }
 
   function toggleTheme() {
@@ -475,7 +522,8 @@ function App() {
                 onChange={(event) => {
                   setSelectedSuggestionUrl("");
                   setSelectedCreateValue("");
-                  setIsSubmitted(false);
+                  setSubmitState("idle");
+                  setSubmitError("");
                   setArticleUrl(event.target.value);
                 }}
                 onKeyDown={(event) => {
@@ -549,17 +597,20 @@ function App() {
           ) : null}
           <p
             className={`validation-message ${
-              validation.status === "invalid" || (hasSelectedSearchValue && !isSubmitted)
+              submitState !== "submitting" &&
+              (validation.status === "invalid" || hasSelectedSearchValue || submitState === "error")
                 ? "is-error"
                 : ""
             }`}
             aria-live="polite"
           >
-            {isSubmitted ? (
+            {submitState === "submitting" ? (
               <span className="checking-status">
                 <LoaderCircle className="checking-spinner" aria-hidden="true" />
                 <span>Submitted...</span>
               </span>
+            ) : submitState === "error" ? (
+              submitError
             ) : hasSelectedSearchValue ? (
               <>
                 Click Enter (keyboard) or{" "}
