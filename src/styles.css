@@ -618,7 +618,7 @@ body {
 
 .dashboard-kicker {
   margin: 0 0 10px;
-  color: var(--brand-accent);
+  color: var(--muted);
   font-size: 0.82rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -628,9 +628,9 @@ body {
 .dashboard-refresh-button {
   display: inline-grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
-  margin-left: 8px;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
   border: 0;
   border-radius: 50%;
   padding: 0;
@@ -649,8 +649,8 @@ body {
 }
 
 .dashboard-refresh-button svg {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
 }
 
 .dashboard-title {
