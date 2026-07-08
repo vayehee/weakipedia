@@ -226,6 +226,13 @@ function App() {
     setThemeMode(nextThemeMode);
   }
 
+  function blockKeyboardTraySelection(event: React.KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+
   useEffect(() => {
     const trimmed = articleUrl.trim();
 
@@ -388,6 +395,8 @@ function App() {
                   className="suggestion-option"
                   key={suggestion.url}
                   type="button"
+                  onKeyDown={blockKeyboardTraySelection}
+                  onKeyUp={blockKeyboardTraySelection}
                   onClick={() => selectSuggestion(suggestion)}
                 >
                   <img
@@ -407,6 +416,8 @@ function App() {
                 <button
                   className="suggestion-option suggestion-create-option"
                   type="button"
+                  onKeyDown={blockKeyboardTraySelection}
+                  onKeyUp={blockKeyboardTraySelection}
                   onClick={selectCreateSuggestion}
                 >
                   <img
