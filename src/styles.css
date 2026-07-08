@@ -529,11 +529,11 @@ body {
 .dashboard-topbar .dashboard-brand .brand-byline {
   gap: 0.18em;
   margin-left: 60.6%;
-  font-size: 0.34rem;
+  font-size: 0.7rem;
 }
 
 .dashboard-topbar .dashboard-brand .brand-byline-by {
-  font-size: 0.34rem;
+  font-size: 0.7rem;
 }
 
 .dashboard-topbar .dashboard-brand .brand-byline-favicon {
