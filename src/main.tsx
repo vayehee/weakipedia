@@ -74,17 +74,23 @@ type StaticBuildStep = {
 };
 
 const STATIC_BUILD_STEP_LABELS = [
-  "Wikipedia article metadata...",
-  "Wikipedia article parse...",
-  "Wikipedia user desktop pageviews...",
-  "Wikipedia machine access pageviews...",
-  "Wikipedia user mobile app pageviews...",
-  "Wikipedia user mobile web pageviews...",
-  "Wikipedia incoming article traffic...",
-  "Wikipedia outgoing article traffic...",
-  "Wikipedia article revisions...",
-  "Wikipedia article editors...",
-  "Wikipedia article claims and sources...",
+  "Resolving Wikipedia article identity, namespace, redirects, and Wikidata entities...",
+  "Processing article structure, sections, links, categories, templates, and citations...",
+  "Retrieving revision history and recent edit records...",
+  "Attributing current article revision text to contributing editors...",
+  "Measuring human readership over time...",
+  "Measuring mobile web readership over time...",
+  "Measuring mobile app readership over time...",
+  "Measuring crawler and spider access patterns...",
+  "Measuring machine access patterns...",
+  "Mapping incoming traffic pathways to the article...",
+  "Mapping outgoing traffic pathways from the article...",
+  "Summarizing editor activity and article stewardship signals...",
+  "Processing article claims, arguments, and statements...",
+  "Mapping claims to citations and external source material...",
+  "Processing associated Wikidata entity labels, descriptions, sitelinks, and claims...",
+  "Retrieving broader interest patterns around the article subject...",
+  "Retrieving recent publications around the article subject...",
 ] as const;
 
 function getInitialThemeMode(): ThemeMode {
