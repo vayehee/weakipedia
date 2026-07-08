@@ -455,6 +455,23 @@ body {
   color: var(--error-text);
 }
 
+.inline-submit-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.inline-submit-button:hover,
+.inline-submit-button:focus-visible {
+  outline: none;
+  text-decoration-thickness: 2px;
+}
+
 .editor-claim {
   margin: 14px 0 0;
   color: var(--subtle-text);

@@ -134,6 +134,7 @@ function App() {
   const [selectedSuggestionUrl, setSelectedSuggestionUrl] = useState("");
   const [selectedCreateValue, setSelectedCreateValue] = useState("");
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [isSubmitted, setIsSubmitted] = useState(false);
   const [validation, setValidation] = useState<ValidationState>({
     status: "idle",
     message: "",
@@ -195,6 +196,7 @@ function App() {
     setArticleUrl("");
     setSelectedSuggestionUrl("");
     setSelectedCreateValue("");
+    setIsSubmitted(false);
     setSuggestions([]);
     setValidation({ status: "idle", message: "" });
   }
@@ -202,6 +204,7 @@ function App() {
   function selectSuggestion(suggestion: Suggestion) {
     setSelectedSuggestionUrl(suggestion.url);
     setSelectedCreateValue("");
+    setIsSubmitted(false);
     setSuggestions([]);
     setValidation({ status: "valid", message: "" });
     setArticleUrl(suggestion.url);
@@ -211,6 +214,7 @@ function App() {
     const createValue = `Create: ${searchTerm}`;
     setSelectedSuggestionUrl("");
     setSelectedCreateValue(createValue);
+    setIsSubmitted(false);
     setSuggestions([]);
     setValidation({ status: "valid", message: "" });
     setArticleUrl(createValue);
@@ -220,6 +224,8 @@ function App() {
     if (!hasSelectedSearchValue) {
       return;
     }
+
+    setIsSubmitted(true);
   }
 
   function toggleTheme() {
@@ -365,6 +371,7 @@ function App() {
                 onChange={(event) => {
                   setSelectedSuggestionUrl("");
                   setSelectedCreateValue("");
+                  setIsSubmitted(false);
                   setArticleUrl(event.target.value);
                 }}
                 onKeyDown={(event) => {
@@ -442,8 +449,19 @@ function App() {
             }`}
             aria-live="polite"
           >
-            {hasSelectedSearchValue ? (
-              "Keyboard Enter to submit."
+            {isSubmitted ? (
+              <span className="checking-status">
+                <LoaderCircle className="checking-spinner" aria-hidden="true" />
+                <span>Submitted...</span>
+              </span>
+            ) : hasSelectedSearchValue ? (
+              <>
+                Click Enter (keyboard) or{" "}
+                <button className="inline-submit-button" type="button" onClick={submitSearch}>
+                  here
+                </button>{" "}
+                to submit.
+              </>
             ) : validation.status === "checking" ? (
               <span className="checking-status">
                 <LoaderCircle className="checking-spinner" aria-hidden="true" />
