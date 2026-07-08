@@ -147,7 +147,7 @@ function getTargetTitle(targetId: string) {
 }
 
 function getTargetFetchDate() {
-  return "Jul 08, 2026";
+  return "July 8, 2026";
 }
 
 function getStaticDashboardRoute(location: Location): StaticDashboardRoute | null {
