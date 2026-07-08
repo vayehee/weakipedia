@@ -445,7 +445,9 @@ function App() {
           ) : null}
           <p
             className={`validation-message ${
-              validation.status === "invalid" || hasSelectedSearchValue ? "is-error" : ""
+              validation.status === "invalid" || (hasSelectedSearchValue && !isSubmitted)
+                ? "is-error"
+                : ""
             }`}
             aria-live="polite"
           >
