@@ -438,6 +438,7 @@ function App() {
               displayValidationMessage(validation, hasExactSuggestion, showCreateSuggestion)
             )}
           </p>
+          <p className="editor-claim">I am a Wikipedia editor</p>
         </form>
       </main>
     </div>
