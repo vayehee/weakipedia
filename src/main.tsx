@@ -145,6 +145,8 @@ function App() {
   const showCreateSuggestion =
     suggestions.length > 0 && validation.status !== "valid" && Boolean(searchTerm) && !hasExactSuggestion;
   const hasSearchValue = articleUrl.length > 0;
+  const hasSelectedSearchValue =
+    Boolean(searchTerm) && (searchTerm === selectedSuggestionUrl || searchTerm === selectedCreateValue);
   const nextThemeMode = themeMode === "light" ? "dark" : "light";
   const ThemeIcon = themeMode === "light" ? Moon : Sun;
 
@@ -215,8 +217,8 @@ function App() {
   }
 
   function submitSearch() {
-    if (suggestions.length > 0) {
-      selectSuggestion(suggestions[0]);
+    if (!hasSelectedSearchValue) {
+      return;
     }
   }
 
@@ -425,11 +427,13 @@ function App() {
           ) : null}
           <p
             className={`validation-message ${
-              validation.status === "invalid" ? "is-error" : ""
+              validation.status === "invalid" || hasSelectedSearchValue ? "is-error" : ""
             }`}
             aria-live="polite"
           >
-            {validation.status === "checking" ? (
+            {hasSelectedSearchValue ? (
+              "Keyboard Enter to submit."
+            ) : validation.status === "checking" ? (
               <span className="checking-status">
                 <LoaderCircle className="checking-spinner" aria-hidden="true" />
                 <span>Checking...</span>
