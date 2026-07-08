@@ -459,7 +459,7 @@ body {
   border: 0;
   padding: 0;
   background: transparent;
-  color: inherit;
+  color: LinkText;
   cursor: pointer;
   font: inherit;
   text-decoration: underline;
