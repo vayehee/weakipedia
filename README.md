@@ -15,6 +15,10 @@ npm run dev
 npm run build
 ```
 
+## Product Rules
+
+- [Routing rules](docs/routing-rules.md)
+
 ## Google Cloud
 
 The intended Google Cloud project name is `Weakipedia`. The project ID is tracked separately because Google Cloud project IDs must be globally unique.
