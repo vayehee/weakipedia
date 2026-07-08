@@ -502,8 +502,9 @@ body {
   align-items: center;
   justify-content: space-between;
   column-gap: 24px;
-  min-height: 64px;
-  padding: 12px 20px;
+  row-gap: 8px;
+  min-height: 100px;
+  padding: 12px 20px 0;
   border-bottom: 1px solid var(--field-border);
 }
 
@@ -555,6 +556,53 @@ body {
 
 .dashboard-account {
   justify-self: end;
+}
+
+.dashboard-tabs {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  justify-self: center;
+  max-width: calc(100vw - 32px);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dashboard-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.dashboard-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.dashboard-tab:hover,
+.dashboard-tab:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.dashboard-tab.is-active {
+  color: var(--brand-accent);
+}
+
+.dashboard-tab.is-active::after {
+  position: absolute;
+  right: 12px;
+  bottom: -1px;
+  left: 12px;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--brand-accent);
+  content: "";
 }
 
 .dashboard-shell {
@@ -743,8 +791,8 @@ body {
   .dashboard-topbar {
     grid-template-columns: minmax(140px, 1fr) max-content;
     row-gap: 10px;
-    min-height: 58px;
-    padding: 10px 12px;
+    min-height: 140px;
+    padding: 10px 12px 0;
   }
 
   .dashboard-search-form {
@@ -760,6 +808,13 @@ body {
 
   .dashboard-topbar .dashboard-brand .brand-text {
     font-size: 1.96rem;
+  }
+
+  .dashboard-tabs {
+    grid-row: 3;
+    justify-self: start;
+    width: 100%;
+    max-width: none;
   }
 
   .dashboard-shell {

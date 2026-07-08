@@ -47,8 +47,21 @@ type ResolveResponse = {
 
 type ThemeMode = "light" | "dark";
 
+const DASHBOARD_TABS = [
+  { id: "stats", label: "Stats" },
+  { id: "views", label: "Views" },
+  { id: "news", label: "News" },
+  { id: "traffic", label: "Traffic" },
+  { id: "claims", label: "Claims" },
+  { id: "edits", label: "Edits" },
+  { id: "editors", label: "Editors" },
+] as const;
+
+type DashboardView = (typeof DASHBOARD_TABS)[number]["id"];
+
 type StaticDashboardRoute = {
   targetId: string;
+  view: DashboardView;
 };
 
 function getInitialThemeMode(): ThemeMode {
@@ -112,17 +125,41 @@ function exactSearchTermSuggestions(suggestions: Suggestion[], searchTerm: strin
   return suggestions.filter((suggestion) => suggestionTitleMatchesSearchTerm(suggestion, searchTerm));
 }
 
-function getStaticDashboardRoute(pathname: string): StaticDashboardRoute | null {
+function getDashboardView(value: string | null): DashboardView {
+  return DASHBOARD_TABS.some((tab) => tab.id === value) ? (value as DashboardView) : "stats";
+}
+
+function getStaticDashboardRoute(location: Location): StaticDashboardRoute | null {
+  const { pathname, search } = location;
+  const searchParams = new URLSearchParams(search);
+
+  if (pathname === "/static") {
+    const targetId = searchParams.get("target");
+
+    if (targetId) {
+      return {
+        targetId,
+        view: getDashboardView(searchParams.get("view")),
+      };
+    }
+  }
+
   const targetPathMatch = pathname.match(/^\/static\/target\/([^/]+)\/?$/);
 
   if (targetPathMatch) {
-    return { targetId: decodeURIComponent(targetPathMatch[1]) };
+    return {
+      targetId: decodeURIComponent(targetPathMatch[1]),
+      view: getDashboardView(searchParams.get("view")),
+    };
   }
 
   const targetEqualsMatch = pathname.match(/^\/static\/target=([^/]+)\/?$/);
 
   if (targetEqualsMatch) {
-    return { targetId: decodeURIComponent(targetEqualsMatch[1]) };
+    return {
+      targetId: decodeURIComponent(targetEqualsMatch[1]),
+      view: getDashboardView(searchParams.get("view")),
+    };
   }
 
   return null;
@@ -148,7 +185,7 @@ function displayValidationMessage(
 }
 
 function App() {
-  const staticDashboardRoute = getStaticDashboardRoute(window.location.pathname);
+  const staticDashboardRoute = getStaticDashboardRoute(window.location);
   const user = mockTelegramUser;
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialThemeMode);
   const [articleUrl, setArticleUrl] = useState("");
@@ -314,6 +351,7 @@ function App() {
     return (
       <StaticDashboardPage
         targetId={staticDashboardRoute.targetId}
+        activeView={staticDashboardRoute.view}
         nextThemeMode={nextThemeMode}
         ThemeIcon={ThemeIcon}
         onToggleTheme={toggleTheme}
@@ -499,6 +537,7 @@ function App() {
 
 type StaticDashboardPageProps = {
   targetId: string;
+  activeView: DashboardView;
   nextThemeMode: ThemeMode;
   ThemeIcon: typeof Moon;
   onToggleTheme: () => void;
@@ -506,6 +545,7 @@ type StaticDashboardPageProps = {
 
 function StaticDashboardPage({
   targetId,
+  activeView,
   nextThemeMode,
   ThemeIcon,
   onToggleTheme,
@@ -563,11 +603,23 @@ function StaticDashboardPage({
             Login / Sign up
           </button>
         </div>
+        <nav className="dashboard-tabs" aria-label="Dashboard views">
+          {DASHBOARD_TABS.map((tab) => (
+            <a
+              className={`dashboard-tab ${activeView === tab.id ? "is-active" : ""}`}
+              href={`/static?target=${encodeURIComponent(targetId)}&view=${tab.id}`}
+              key={tab.id}
+              aria-current={activeView === tab.id ? "page" : undefined}
+            >
+              {tab.label}
+            </a>
+          ))}
+        </nav>
       </header>
 
       <main className="dashboard-shell">
         <section className="dashboard-hero" aria-labelledby="dashboard-title">
-          <p className="dashboard-kicker">Static dashboard</p>
+          <p className="dashboard-kicker">Static dashboard / {activeView}</p>
           <h1 id="dashboard-title">Target {targetId}</h1>
           <p>
             This frozen dashboard will show the article, traffic, views, edits, claims,
