@@ -654,8 +654,8 @@ function StaticDashboardPage({
             <button
               className="dashboard-refresh-button"
               type="button"
-              aria-label="Refresh dashboard"
-              title="Login / Sign up required to refresh"
+              aria-label="refresh data"
+              title="refresh data"
               onClick={requestRefresh}
             >
               <RefreshCw aria-hidden="true" strokeWidth={2} />
