@@ -617,9 +617,6 @@ body {
 }
 
 .dashboard-kicker {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
   margin: 0 0 10px;
   color: var(--brand-accent);
   font-size: 0.82rem;
@@ -633,6 +630,7 @@ body {
   place-items: center;
   width: 24px;
   height: 24px;
+  margin-left: 8px;
   border: 0;
   border-radius: 50%;
   padding: 0;
@@ -640,6 +638,7 @@ body {
   color: var(--muted);
   cursor: pointer;
   letter-spacing: 0;
+  vertical-align: middle;
 }
 
 .dashboard-refresh-button:hover,
