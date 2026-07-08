@@ -682,6 +682,56 @@ body {
   margin-top: 32px;
 }
 
+.static-build-monitor {
+  max-width: 760px;
+  margin-top: 32px;
+  text-align: left;
+}
+
+.static-build-list {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.static-build-step {
+  color: var(--placeholder-text);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.static-build-step.is-active {
+  color: var(--muted);
+}
+
+.static-build-step.is-success {
+  color: #188038;
+}
+
+.static-build-step.is-error {
+  color: var(--error-text);
+}
+
+.static-build-step-label {
+  vertical-align: middle;
+}
+
+.static-build-spinner {
+  width: 14px;
+  height: 14px;
+  margin-left: 8px;
+  animation: spin 0.8s linear infinite;
+  vertical-align: -0.14em;
+}
+
+.static-build-error-message {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.82rem;
+}
+
 .dashboard-panel {
   min-height: 142px;
   border: 1px solid var(--field-border);

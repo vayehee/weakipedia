@@ -65,6 +65,28 @@ type StaticDashboardRoute = {
   view: DashboardView;
 };
 
+type StaticBuildStepStatus = "pending" | "active" | "success" | "error";
+
+type StaticBuildStep = {
+  label: string;
+  status: StaticBuildStepStatus;
+  error?: string;
+};
+
+const STATIC_BUILD_STEP_LABELS = [
+  "Wikipedia article metadata...",
+  "Wikipedia article parse...",
+  "Wikipedia user desktop pageviews...",
+  "Wikipedia machine access pageviews...",
+  "Wikipedia user mobile app pageviews...",
+  "Wikipedia user mobile web pageviews...",
+  "Wikipedia incoming article traffic...",
+  "Wikipedia outgoing article traffic...",
+  "Wikipedia article revisions...",
+  "Wikipedia article editors...",
+  "Wikipedia article claims and sources...",
+] as const;
+
 function getInitialThemeMode(): ThemeMode {
   const storedTheme = window.localStorage.getItem("weakipedia-theme");
 
@@ -575,6 +597,34 @@ function StaticDashboardPage({
   const targetTitle = getTargetTitle(targetId);
   const targetFetchDate = getTargetFetchDate();
   const dashboardViewLabel = getDashboardViewLabel(activeView);
+  const [activeBuildStepIndex, setActiveBuildStepIndex] = useState(0);
+  const isStaticBuildComplete = activeBuildStepIndex >= STATIC_BUILD_STEP_LABELS.length;
+
+  const staticBuildSteps: StaticBuildStep[] = STATIC_BUILD_STEP_LABELS.map((label, index) => {
+    if (index < activeBuildStepIndex) {
+      return { label, status: "success" };
+    }
+
+    if (index === activeBuildStepIndex) {
+      return { label, status: "active" };
+    }
+
+    return { label, status: "pending" };
+  });
+
+  useEffect(() => {
+    if (isStaticBuildComplete) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setActiveBuildStepIndex((currentStep) =>
+        Math.min(currentStep + 1, STATIC_BUILD_STEP_LABELS.length),
+      );
+    }, 850);
+
+    return () => window.clearTimeout(timeout);
+  }, [activeBuildStepIndex, isStaticBuildComplete]);
 
   function requestRefresh() {
     window.alert("Login / Sign up is required to refresh this dashboard.");
@@ -671,16 +721,44 @@ function StaticDashboardPage({
           </p>
         </section>
 
-        <section className="dashboard-grid" aria-label="Static dashboard sections">
-          <DashboardPanel title="Overview" body="Resolved identity, canonical title, and build date." />
-          <DashboardPanel title="Article" body="Parsed sections, links, categories, and current text." />
-          <DashboardPanel title="Views" body="Desktop, mobile, spider, and automated pageview trends." />
-          <DashboardPanel title="Traffic" body="Inbound and outbound navigation from Wikinav." />
-          <DashboardPanel title="Editors" body="Revision activity and article-specific editor analysis." />
-          <DashboardPanel title="Claims & sources" body="Arguments detected in the article and the sources mapped to them." />
-        </section>
+        {isStaticBuildComplete ? (
+          <section className="dashboard-grid" aria-label="Static dashboard sections">
+            <DashboardPanel title="Overview" body="Resolved identity, canonical title, and build date." />
+            <DashboardPanel title="Article" body="Parsed sections, links, categories, and current text." />
+            <DashboardPanel title="Views" body="Desktop, mobile, spider, and automated pageview trends." />
+            <DashboardPanel title="Traffic" body="Inbound and outbound navigation from Wikinav." />
+            <DashboardPanel title="Editors" body="Revision activity and article-specific editor analysis." />
+            <DashboardPanel title="Claims & sources" body="Arguments detected in the article and the sources mapped to them." />
+          </section>
+        ) : (
+          <StaticBuildMonitor steps={staticBuildSteps} />
+        )}
       </main>
     </div>
+  );
+}
+
+type StaticBuildMonitorProps = {
+  steps: StaticBuildStep[];
+};
+
+function StaticBuildMonitor({ steps }: StaticBuildMonitorProps) {
+  return (
+    <section className="static-build-monitor" aria-label="Static target build progress">
+      <ol className="static-build-list">
+        {steps.map((step) => (
+          <li className={`static-build-step is-${step.status}`} key={step.label}>
+            <span className="static-build-step-label">{step.label}</span>
+            {step.status === "active" ? (
+              <LoaderCircle className="static-build-spinner" aria-hidden="true" />
+            ) : null}
+            {step.status === "error" && step.error ? (
+              <span className="static-build-error-message">{step.error}</span>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
