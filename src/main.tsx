@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { LoaderCircle, Moon, Search, Sun, X } from "lucide-react";
+import { LoaderCircle, Moon, RefreshCw, Search, Sun, X } from "lucide-react";
 import "./styles.css";
 
 const mockTelegramUser = null as
@@ -17,6 +17,7 @@ const WIKIMEDIA_SEARCH_API_URL =
     : "http://127.0.0.1:8080");
 const VAYEHEE_FAVICON_URL =
   "https://vayehee.com/wp-content/uploads/2021/11/cropped-cropped-logo-small-1-32x32.png";
+const WIKIPEDIA_FAVICON_URL = "https://www.wikipedia.org/static/favicon/wikipedia.ico";
 
 type NavigatorWithVirtualKeyboard = Navigator & {
   virtualKeyboard?: {
@@ -127,6 +128,26 @@ function exactSearchTermSuggestions(suggestions: Suggestion[], searchTerm: strin
 
 function getDashboardView(value: string | null): DashboardView {
   return DASHBOARD_TABS.some((tab) => tab.id === value) ? (value as DashboardView) : "stats";
+}
+
+function getDashboardViewLabel(view: DashboardView) {
+  if (view === "stats") {
+    return "STATISTICS";
+  }
+
+  return view.toLocaleUpperCase();
+}
+
+function getTargetTitle(targetId: string) {
+  if (targetId.toLocaleLowerCase() === "test") {
+    return "Test";
+  }
+
+  return targetId.replace(/[_-]+/g, " ").replace(/\b\p{L}/gu, (letter) => letter.toLocaleUpperCase());
+}
+
+function getTargetFetchDate() {
+  return "Jul 08, 2026";
 }
 
 function getStaticDashboardRoute(location: Location): StaticDashboardRoute | null {
@@ -551,6 +572,13 @@ function StaticDashboardPage({
   onToggleTheme,
 }: StaticDashboardPageProps) {
   const [dashboardSearch, setDashboardSearch] = useState("");
+  const targetTitle = getTargetTitle(targetId);
+  const targetFetchDate = getTargetFetchDate();
+  const dashboardViewLabel = getDashboardViewLabel(activeView);
+
+  function requestRefresh() {
+    window.alert("Login / Sign up is required to refresh this dashboard.");
+  }
 
   return (
     <div className="page static-dashboard-page">
@@ -619,8 +647,24 @@ function StaticDashboardPage({
 
       <main className="dashboard-shell">
         <section className="dashboard-hero" aria-labelledby="dashboard-title">
-          <p className="dashboard-kicker">Static dashboard / {activeView}</p>
-          <h1 id="dashboard-title">Target {targetId}</h1>
+          <div className="dashboard-kicker">
+            <span>
+              {dashboardViewLabel} | {targetFetchDate}
+            </span>
+            <button
+              className="dashboard-refresh-button"
+              type="button"
+              aria-label="Refresh dashboard"
+              title="Login / Sign up required to refresh"
+              onClick={requestRefresh}
+            >
+              <RefreshCw aria-hidden="true" strokeWidth={2} />
+            </button>
+          </div>
+          <h1 id="dashboard-title" className="dashboard-title">
+            <img className="dashboard-title-favicon" src={WIKIPEDIA_FAVICON_URL} alt="" />
+            <span>{targetTitle}</span>
+          </h1>
           <p>
             This frozen dashboard will show the article, traffic, views, edits, claims,
             sources, and related signals captured for this target.

@@ -617,6 +617,9 @@ body {
 }
 
 .dashboard-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 10px;
   color: var(--brand-accent);
   font-size: 0.82rem;
@@ -625,12 +628,47 @@ body {
   text-transform: uppercase;
 }
 
-.dashboard-hero h1 {
+.dashboard-refresh-button {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  letter-spacing: 0;
+}
+
+.dashboard-refresh-button:hover,
+.dashboard-refresh-button:focus-visible {
+  background: var(--subtle-button-bg-hover);
+  color: var(--text);
+  outline: none;
+}
+
+.dashboard-refresh-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.dashboard-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin: 0;
   color: var(--text);
   font-size: 2.2rem;
   font-weight: 600;
   line-height: 1.15;
+}
+
+.dashboard-title-favicon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
 }
 
 .dashboard-hero p {
