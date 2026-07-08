@@ -47,6 +47,10 @@ type ResolveResponse = {
 
 type ThemeMode = "light" | "dark";
 
+type StaticDashboardRoute = {
+  targetId: string;
+};
+
 function getInitialThemeMode(): ThemeMode {
   const storedTheme = window.localStorage.getItem("weakipedia-theme");
 
@@ -108,6 +112,22 @@ function exactSearchTermSuggestions(suggestions: Suggestion[], searchTerm: strin
   return suggestions.filter((suggestion) => suggestionTitleMatchesSearchTerm(suggestion, searchTerm));
 }
 
+function getStaticDashboardRoute(pathname: string): StaticDashboardRoute | null {
+  const targetPathMatch = pathname.match(/^\/static\/target\/([^/]+)\/?$/);
+
+  if (targetPathMatch) {
+    return { targetId: decodeURIComponent(targetPathMatch[1]) };
+  }
+
+  const targetEqualsMatch = pathname.match(/^\/static\/target=([^/]+)\/?$/);
+
+  if (targetEqualsMatch) {
+    return { targetId: decodeURIComponent(targetEqualsMatch[1]) };
+  }
+
+  return null;
+}
+
 function displayValidationMessage(
   validation: ValidationState,
   hasExactSuggestion: boolean,
@@ -128,6 +148,7 @@ function displayValidationMessage(
 }
 
 function App() {
+  const staticDashboardRoute = getStaticDashboardRoute(window.location.pathname);
   const user = mockTelegramUser;
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialThemeMode);
   const [articleUrl, setArticleUrl] = useState("");
@@ -289,6 +310,17 @@ function App() {
     };
   }, [articleUrl, selectedCreateValue, selectedSuggestionUrl]);
 
+  if (staticDashboardRoute) {
+    return (
+      <StaticDashboardPage
+        targetId={staticDashboardRoute.targetId}
+        nextThemeMode={nextThemeMode}
+        ThemeIcon={ThemeIcon}
+        onToggleTheme={toggleTheme}
+      />
+    );
+  }
+
   return (
     <div className="page">
       <header className="topbar">
@@ -318,22 +350,7 @@ function App() {
       </header>
 
       <main className="search-shell" aria-labelledby="page-title">
-        <div className="brand">
-          <div id="page-title" className="brand-text" role="heading" aria-level={1}>
-            Weakipedia
-          </div>
-          <div className="brand-byline-layer" aria-hidden="true">
-            <div className="brand-byline">
-              <span className="brand-byline-by">by</span>
-              <img
-                className="brand-byline-favicon"
-                src={VAYEHEE_FAVICON_URL}
-                alt=""
-              />
-              <span className="brand-byline-name">ayehee</span>
-            </div>
-          </div>
-        </div>
+        <BrandLogo id="page-title" />
         <p className="tagline">
           In the Artificial Intelligence age,{" "}
           <span className="wiki-wordmark" aria-label="Wikipedia">
@@ -477,6 +494,133 @@ function App() {
         </form>
       </main>
     </div>
+  );
+}
+
+type StaticDashboardPageProps = {
+  targetId: string;
+  nextThemeMode: ThemeMode;
+  ThemeIcon: typeof Moon;
+  onToggleTheme: () => void;
+};
+
+function StaticDashboardPage({
+  targetId,
+  nextThemeMode,
+  ThemeIcon,
+  onToggleTheme,
+}: StaticDashboardPageProps) {
+  const [dashboardSearch, setDashboardSearch] = useState("");
+
+  return (
+    <div className="page static-dashboard-page">
+      <header className="dashboard-topbar">
+        <a className="dashboard-brand-link" href="/" aria-label="Back to Weakipedia search">
+          <BrandLogo className="dashboard-brand" />
+        </a>
+        <form
+          className="dashboard-search-form"
+          role="search"
+          onSubmit={(event) => {
+            event.preventDefault();
+          }}
+        >
+          <div className="input-field dashboard-input-field">
+            <Search className="input-icon" aria-hidden="true" strokeWidth={2} />
+            <input
+              aria-label="Wikipedia article URL"
+              className="url-input"
+              enterKeyHint="search"
+              inputMode="search"
+              placeholder="Search or paste Wikipedia article URL..."
+              type="search"
+              value={dashboardSearch}
+              onChange={(event) => setDashboardSearch(event.target.value)}
+            />
+            {dashboardSearch.length > 0 ? (
+              <button
+                className="clear-search-button"
+                type="button"
+                aria-label="Clear search"
+                onClick={() => setDashboardSearch("")}
+              >
+                <X aria-hidden="true" strokeWidth={2} />
+              </button>
+            ) : null}
+          </div>
+        </form>
+        <div className="account dashboard-account">
+          <button
+            className="theme-button"
+            type="button"
+            aria-label={`Switch to ${nextThemeMode} mode`}
+            title={`Switch to ${nextThemeMode} mode`}
+            onClick={onToggleTheme}
+          >
+            <ThemeIcon aria-hidden="true" strokeWidth={2} />
+          </button>
+          <button className="login-button" type="button">
+            Login / Sign up
+          </button>
+        </div>
+      </header>
+
+      <main className="dashboard-shell">
+        <section className="dashboard-hero" aria-labelledby="dashboard-title">
+          <p className="dashboard-kicker">Static dashboard</p>
+          <h1 id="dashboard-title">Target {targetId}</h1>
+          <p>
+            This frozen dashboard will show the article, traffic, views, edits, claims,
+            sources, and related signals captured for this target.
+          </p>
+        </section>
+
+        <section className="dashboard-grid" aria-label="Static dashboard sections">
+          <DashboardPanel title="Overview" body="Resolved identity, canonical title, and build date." />
+          <DashboardPanel title="Article" body="Parsed sections, links, categories, and current text." />
+          <DashboardPanel title="Views" body="Desktop, mobile, spider, and automated pageview trends." />
+          <DashboardPanel title="Traffic" body="Inbound and outbound navigation from Wikinav." />
+          <DashboardPanel title="Editors" body="Revision activity and article-specific editor analysis." />
+          <DashboardPanel title="Claims & sources" body="Arguments detected in the article and the sources mapped to them." />
+        </section>
+      </main>
+    </div>
+  );
+}
+
+type BrandLogoProps = {
+  className?: string;
+  id?: string;
+};
+
+function BrandLogo({ className = "", id }: BrandLogoProps) {
+  return (
+    <div className={`brand ${className}`.trim()}>
+      <div id={id} className="brand-text" role="heading" aria-level={1}>
+        Weakipedia
+      </div>
+      <div className="brand-byline-layer" aria-hidden="true">
+        <div className="brand-byline">
+          <span className="brand-byline-by">by</span>
+          <img className="brand-byline-favicon" src={VAYEHEE_FAVICON_URL} alt="" />
+          <span className="brand-byline-name">ayehee</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type DashboardPanelProps = {
+  title: string;
+  body: string;
+};
+
+function DashboardPanel({ title, body }: DashboardPanelProps) {
+  return (
+    <article className="dashboard-panel">
+      <h2>{title}</h2>
+      <p>{body}</p>
+    </article>
   );
 }
 
