@@ -67,7 +67,7 @@ type StaticBuildStepRunResponse = {
 type ThemeMode = "light" | "dark";
 
 const DASHBOARD_TABS = [
-  { id: "stats", label: "Stats" },
+  { id: "stats", label: "Overview" },
   { id: "views", label: "Views" },
   { id: "news", label: "News" },
   { id: "traffic", label: "Traffic" },
@@ -292,7 +292,7 @@ function getDashboardView(value: string | null): DashboardView {
 
 function getDashboardViewLabel(view: DashboardView) {
   if (view === "stats") {
-    return "STATISTICS";
+    return "OVERVIEW";
   }
 
   return view.toLocaleUpperCase();
