@@ -76,6 +76,13 @@ class WikidataEntityPersistenceResult:
     claims_count: int
 
 
+@dataclass(frozen=True)
+class StaticStepCacheResult:
+    earliest_record_at: datetime
+    counts: dict[str, int]
+    details: dict[str, str | int | None]
+
+
 _schema_ready = False
 
 
@@ -470,6 +477,228 @@ def revision_timestamp(revision: dict) -> datetime | None:
         return None
 
     return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def cache_result_from_row(
+    row: asyncpg.Record | None,
+    *,
+    count_fields: tuple[str, ...],
+    detail_fields: tuple[str, ...] = (),
+) -> StaticStepCacheResult | None:
+    if not row or not row["earliest_record_at"]:
+        return None
+
+    counts = {field: int(row[field] or 0) for field in count_fields}
+    if not any(counts.values()):
+        return None
+
+    return StaticStepCacheResult(
+        earliest_record_at=row["earliest_record_at"],
+        counts=counts,
+        details={field: row[field] for field in detail_fields},
+    )
+
+
+async def get_existing_article_identity(target: StaticTargetRecord) -> StaticStepCacheResult | None:
+    article_id = article_id_for(target)
+    qid = target.article_metadata.wikidata_qid
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+        row = await conn.fetchrow(
+            """
+            SELECT
+                (SELECT count(*) FROM targets WHERE id = $1) AS targets_count,
+                (SELECT count(*) FROM w_articles WHERE id = $2) AS articles_count,
+                (SELECT count(*) FROM wdata_items WHERE id = $3) AS wikidata_items_count,
+                (
+                    SELECT min(created_at)
+                    FROM (
+                        SELECT created_at FROM targets WHERE id = $1
+                        UNION ALL
+                        SELECT created_at FROM w_articles WHERE id = $2
+                        UNION ALL
+                        SELECT created_at FROM wdata_items WHERE id = $3
+                    ) AS existing_records
+                ) AS earliest_record_at
+            """,
+            target.target_id,
+            article_id,
+            qid,
+        )
+    finally:
+        await conn.close()
+
+    result = cache_result_from_row(
+        row,
+        count_fields=("targets_count", "articles_count", "wikidata_items_count"),
+    )
+    if not result:
+        return None
+
+    has_identity = result.counts["targets_count"] > 0 and result.counts["articles_count"] > 0
+    has_required_wikidata = not qid or result.counts["wikidata_items_count"] > 0
+    return result if has_identity and has_required_wikidata else None
+
+
+async def get_existing_article_parse(target: StaticTargetRecord) -> StaticStepCacheResult | None:
+    article_id = article_id_for(target)
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+        row = await conn.fetchrow(
+            """
+            SELECT
+                (SELECT count(*) FROM w_article_sections WHERE target_id = $1 AND article_id = $2) AS sections_count,
+                (SELECT count(*) FROM w_article_links WHERE target_id = $1 AND article_id = $2) AS links_count,
+                (SELECT count(*) FROM w_article_categories WHERE target_id = $1 AND article_id = $2) AS categories_count,
+                (SELECT count(*) FROM w_article_templates WHERE target_id = $1 AND article_id = $2) AS templates_count,
+                (SELECT count(*) FROM target_sources WHERE target_id = $1) AS external_sources_count,
+                (SELECT latest_revid FROM w_articles WHERE id = $2) AS latest_revid,
+                (
+                    SELECT min(created_at)
+                    FROM (
+                        SELECT created_at FROM w_article_sections WHERE target_id = $1 AND article_id = $2
+                        UNION ALL
+                        SELECT created_at FROM w_article_links WHERE target_id = $1 AND article_id = $2
+                        UNION ALL
+                        SELECT created_at FROM w_article_categories WHERE target_id = $1 AND article_id = $2
+                        UNION ALL
+                        SELECT created_at FROM w_article_templates WHERE target_id = $1 AND article_id = $2
+                        UNION ALL
+                        SELECT created_at FROM target_sources WHERE target_id = $1
+                    ) AS existing_records
+                ) AS earliest_record_at
+            """,
+            target.target_id,
+            article_id,
+        )
+    finally:
+        await conn.close()
+
+    result = cache_result_from_row(
+        row,
+        count_fields=(
+            "sections_count",
+            "links_count",
+            "categories_count",
+            "templates_count",
+            "external_sources_count",
+        ),
+        detail_fields=("latest_revid",),
+    )
+    if not result:
+        return None
+
+    return result if result.counts["sections_count"] > 0 else None
+
+
+async def get_existing_article_revisions(target: StaticTargetRecord) -> StaticStepCacheResult | None:
+    article_id = article_id_for(target)
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+        row = await conn.fetchrow(
+            """
+            SELECT
+                count(*) AS revisions_count,
+                count(DISTINCT editor_id) AS editors_count,
+                min(created_at) AS earliest_record_at
+            FROM w_article_revisions
+            WHERE target_id = $1 AND article_id = $2
+            """,
+            target.target_id,
+            article_id,
+        )
+    finally:
+        await conn.close()
+
+    return cache_result_from_row(
+        row,
+        count_fields=("revisions_count", "editors_count"),
+    )
+
+
+async def get_existing_article_authorship(target: StaticTargetRecord) -> StaticStepCacheResult | None:
+    article_id = article_id_for(target)
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+        row = await conn.fetchrow(
+            """
+            SELECT
+                count(*) AS tokens_count,
+                count(DISTINCT editor_id) AS editors_count,
+                max(revision_id) AS revision_id,
+                min(created_at) AS earliest_record_at
+            FROM w_article_text_authorship
+            WHERE target_id = $1 AND article_id = $2
+            """,
+            target.target_id,
+            article_id,
+        )
+    finally:
+        await conn.close()
+
+    return cache_result_from_row(
+        row,
+        count_fields=("tokens_count", "editors_count"),
+        detail_fields=("revision_id",),
+    )
+
+
+async def get_existing_wikidata_entity(target: StaticTargetRecord) -> StaticStepCacheResult | None:
+    qid = target.article_metadata.wikidata_qid
+    if not qid:
+        return None
+
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+        row = await conn.fetchrow(
+            """
+            SELECT
+                (SELECT count(*) FROM wdata_items WHERE id = $1) AS items_count,
+                (SELECT count(*) FROM wdata_item_labels WHERE wdata_item_id = $1) AS labels_count,
+                (SELECT count(*) FROM wdata_item_descriptions WHERE wdata_item_id = $1) AS descriptions_count,
+                (SELECT count(*) FROM wdata_item_sitelinks WHERE wdata_item_id = $1) AS sitelinks_count,
+                (SELECT count(DISTINCT property_id) FROM wdata_item_claims WHERE wdata_item_id = $1) AS claim_groups_count,
+                (SELECT count(*) FROM wdata_item_claims WHERE wdata_item_id = $1) AS claims_count,
+                (
+                    SELECT min(created_at)
+                    FROM (
+                        SELECT created_at FROM wdata_items WHERE id = $1
+                        UNION ALL
+                        SELECT created_at FROM wdata_item_labels WHERE wdata_item_id = $1
+                        UNION ALL
+                        SELECT created_at FROM wdata_item_descriptions WHERE wdata_item_id = $1
+                        UNION ALL
+                        SELECT created_at FROM wdata_item_sitelinks WHERE wdata_item_id = $1
+                        UNION ALL
+                        SELECT created_at FROM wdata_item_claims WHERE wdata_item_id = $1
+                    ) AS existing_records
+                ) AS earliest_record_at
+            """,
+            qid,
+        )
+    finally:
+        await conn.close()
+
+    result = cache_result_from_row(
+        row,
+        count_fields=(
+            "items_count",
+            "labels_count",
+            "descriptions_count",
+            "sitelinks_count",
+            "claim_groups_count",
+            "claims_count",
+        ),
+    )
+    if not result:
+        return None
+
+    return result if result.counts["items_count"] > 0 and result.counts["claims_count"] > 0 else None
 
 
 async def persist_article_identity(

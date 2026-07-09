@@ -15,6 +15,12 @@ from wikimedia_search.apis.w_article_traffic import fetch_article_traffic
 from wikimedia_search.apis.wdata_item import fetch_wikidata_entity
 from wikimedia_search.db import (
     DatabaseNotConfiguredError,
+    StaticStepCacheResult,
+    get_existing_article_authorship,
+    get_existing_article_identity,
+    get_existing_article_parse,
+    get_existing_article_revisions,
+    get_existing_wikidata_entity,
     persist_article_identity,
     persist_article_parse,
     persist_article_authorship,
@@ -62,6 +68,10 @@ class StaticBuildStepResult:
     message: str
 
 
+def earliest_record_at(cache: StaticStepCacheResult) -> str:
+    return cache.earliest_record_at.isoformat()
+
+
 def pageview_dates() -> tuple[str, str]:
     today = date.today()
     start = today - timedelta(days=90)
@@ -70,6 +80,20 @@ def pageview_dates() -> tuple[str, str]:
 
 async def run_article_identity(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
     metadata = target.article_metadata
+    existing = await get_existing_article_identity(target)
+    if existing:
+        return StaticBuildStepResult(
+            step_id="article_identity",
+            status="success",
+            message=(
+                f"Reused stored MediaWiki identity for {metadata.canonical_title}: "
+                f"target_id={target.target_id}, article_id={target.entity_type}:{target.lang}:{metadata.page_id}, "
+                f"page_id={metadata.page_id}, namespace={metadata.namespace}, "
+                f"wikidata_qid={metadata.wikidata_qid or 'none'}, "
+                f"earliest_record_at={earliest_record_at(existing)}."
+            ),
+        )
+
     try:
         persistence = await persist_article_identity(target)
     except DatabaseNotConfiguredError as error:
@@ -90,6 +114,23 @@ async def run_article_identity(target: StaticTargetRecord, client: httpx.AsyncCl
 
 
 async def run_article_parse(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
+    existing = await get_existing_article_parse(target)
+    if existing:
+        return StaticBuildStepResult(
+            step_id="article_parse",
+            status="success",
+            message=(
+                "Reused stored MediaWiki parse payload "
+                f"revid={existing.details.get('latest_revid') or 'unknown'}, "
+                f"sections={existing.counts['sections_count']}, "
+                f"categories={existing.counts['categories_count']}, "
+                f"links={existing.counts['links_count']}, "
+                f"external_sources={existing.counts['external_sources_count']}, "
+                f"templates={existing.counts['templates_count']}, "
+                f"earliest_record_at={earliest_record_at(existing)}."
+            ),
+        )
+
     parsed = await fetch_article_parse(
         host=target.article_metadata.host,
         title_slug=target.title_slug,
@@ -119,6 +160,19 @@ async def run_article_parse(target: StaticTargetRecord, client: httpx.AsyncClien
 
 
 async def run_article_revisions(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
+    existing = await get_existing_article_revisions(target)
+    if existing:
+        return StaticBuildStepResult(
+            step_id="article_revisions",
+            status="success",
+            message=(
+                f"Reused stored {existing.counts['revisions_count']} MediaWiki revision records "
+                "with ids, parent ids, timestamps, editor names, comments, byte sizes, and minor flags; "
+                f"resolved {existing.counts['editors_count']} editor records from w_editors; "
+                f"earliest_record_at={earliest_record_at(existing)}."
+            ),
+        )
+
     revisions_payload = await fetch_article_revisions(
         host=target.article_metadata.host,
         title_slug=target.title_slug,
@@ -224,6 +278,22 @@ async def run_wikidata_entity(target: StaticTargetRecord, client: httpx.AsyncCli
             "Next fix: record a nullable w_articles.wikidata_item_id state instead of treating absence as success."
         )
 
+    existing = await get_existing_wikidata_entity(target)
+    if existing:
+        return StaticBuildStepResult(
+            step_id="wikidata_entity",
+            status="success",
+            message=(
+                f"Reused stored Wikidata entity {qid}: "
+                f"labels={existing.counts['labels_count']}, "
+                f"descriptions={existing.counts['descriptions_count']}, "
+                f"sitelinks={existing.counts['sitelinks_count']}, "
+                f"claim_groups={existing.counts['claim_groups_count']}, "
+                f"claims={existing.counts['claims_count']}, "
+                f"earliest_record_at={earliest_record_at(existing)}."
+            ),
+        )
+
     entity = await fetch_wikidata_entity(qid=qid, client=client)
 
     try:
@@ -255,6 +325,20 @@ StepRunner = Callable[[StaticTargetRecord, httpx.AsyncClient], Awaitable[StaticB
 
 
 async def run_article_authorship(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
+    existing = await get_existing_article_authorship(target)
+    if existing:
+        return StaticBuildStepResult(
+            step_id="article_authorship",
+            status="success",
+            message=(
+                "Reused stored WikiWho current revision text authorship "
+                f"revision_id={existing.details.get('revision_id') or 'unknown'}, "
+                f"tokens={existing.counts['tokens_count']}, "
+                f"editors={existing.counts['editors_count']}, "
+                f"earliest_record_at={earliest_record_at(existing)}."
+            ),
+        )
+
     authorship = await fetch_article_authorship(
         lang=target.lang,
         page_id=target.article_metadata.page_id,
