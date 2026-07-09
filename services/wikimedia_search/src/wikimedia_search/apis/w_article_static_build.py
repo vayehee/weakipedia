@@ -16,6 +16,7 @@ from wikimedia_search.db import (
     DatabaseNotConfiguredError,
     persist_article_identity,
     persist_article_parse,
+    persist_article_revisions,
 )
 from wikimedia_search.resolver import WIKIMEDIA_USER_AGENT
 from wikimedia_search.static_targets import StaticTargetRecord
@@ -120,13 +121,23 @@ async def run_article_revisions(target: StaticTargetRecord, client: httpx.AsyncC
         title_slug=target.title_slug,
         client=client,
     )
-    raise stuck_after_fetch(
-        fetched=(
-            f"{len(revisions_payload.revisions)} MediaWiki revision records with ids, "
-            "parent ids, timestamps, editor names, comments, byte sizes, and minor flags"
+
+    try:
+        persistence = await persist_article_revisions(target, revisions_payload)
+    except DatabaseNotConfiguredError as error:
+        raise StaticBuildStepError(str(error)) from error
+    except Exception as error:
+        raise StaticBuildStepError(f"Database persistence failed during article revisions: {error}.") from error
+
+    return StaticBuildStepResult(
+        step_id="article_revisions",
+        status="success",
+        message=(
+            f"Stored {persistence.revisions_count} MediaWiki revision records with ids, "
+            "parent ids, timestamps, editor names, comments, byte sizes, and minor flags; "
+            f"resolved {persistence.editors_count} editor records into w_editors; "
+            f"api_query_id={persistence.api_query_id}."
         ),
-        stuck_at="revision normalization and persistence",
-        next_fix="write w_article_revisions rows and resolve revision editor names into w_editors records",
     )
 
 

@@ -12,6 +12,7 @@ from uuid import uuid4
 import asyncpg
 
 from wikimedia_search.apis.w_article_parse import ArticleParsePayload
+from wikimedia_search.apis.w_article_revisions import ArticleRevisionsPayload
 from wikimedia_search.static_targets import StaticTargetRecord
 
 
@@ -39,6 +40,15 @@ class ArticleParsePersistenceResult:
     templates_count: int
     external_sources_count: int
     latest_revid: int | None
+
+
+@dataclass(frozen=True)
+class ArticleRevisionsPersistenceResult:
+    article_id: str
+    static_build_id: str
+    api_query_id: str
+    revisions_count: int
+    editors_count: int
 
 
 _schema_ready = False
@@ -208,6 +218,36 @@ async def ensure_schema(conn: asyncpg.Connection) -> None:
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             UNIQUE(target_id, canonical_url)
         );
+
+        CREATE TABLE IF NOT EXISTS w_editors (
+            id TEXT PRIMARY KEY,
+            lang TEXT NOT NULL,
+            editor_name TEXT NOT NULL,
+            editor_page_url TEXT,
+            edit_count INTEGER,
+            groups JSONB,
+            registration_date TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(lang, editor_name)
+        );
+
+        CREATE TABLE IF NOT EXISTS w_article_revisions (
+            id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL REFERENCES targets(id),
+            article_id TEXT NOT NULL REFERENCES w_articles(id),
+            source_query_id TEXT NOT NULL REFERENCES api_queries(id),
+            source_query_kind TEXT NOT NULL,
+            revision_id BIGINT NOT NULL,
+            parent_revision_id BIGINT,
+            editor_id TEXT REFERENCES w_editors(id),
+            timestamp TIMESTAMPTZ,
+            comment TEXT,
+            size_bytes INTEGER,
+            minor BOOLEAN,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(article_id, revision_id)
+        );
         """
     )
     _schema_ready = True
@@ -257,6 +297,45 @@ def linked_wikipedia_url(target: StaticTargetRecord, title: str) -> str:
 
 def normalized_external_url(url: str) -> str:
     return url.strip()
+
+
+def editor_id_for(lang: str, editor_name: str, user_id: int | None) -> str:
+    if user_id and user_id > 0:
+        return f"w_editor:{lang}:{user_id}"
+
+    return stable_row_id("w_editor", lang, editor_name)
+
+
+def editor_page_url(target: StaticTargetRecord, editor_name: str) -> str:
+    return f"https://{target.article_metadata.host}/wiki/User:{quote(editor_name.replace(' ', '_'), safe='_:()')}"
+
+
+def revision_id(revision: dict) -> int | None:
+    value = revision.get("revid")
+    return int(value) if value is not None else None
+
+
+def revision_parent_id(revision: dict) -> int | None:
+    value = revision.get("parentid")
+    return int(value) if value is not None else None
+
+
+def revision_user_id(revision: dict) -> int | None:
+    value = revision.get("userid")
+    return int(value) if value is not None else None
+
+
+def revision_size(revision: dict) -> int | None:
+    value = revision.get("size")
+    return int(value) if value is not None else None
+
+
+def revision_timestamp(revision: dict) -> datetime | None:
+    value = revision.get("timestamp")
+    if not value:
+        return None
+
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
 
 
 async def persist_article_identity(
@@ -598,4 +677,119 @@ async def persist_article_parse(
         templates_count=template_count,
         external_sources_count=external_source_count,
         latest_revid=parsed.revid,
+    )
+
+
+async def persist_article_revisions(
+    target: StaticTargetRecord,
+    revisions_payload: ArticleRevisionsPayload,
+) -> ArticleRevisionsPersistenceResult:
+    article_id = article_id_for(target)
+    static_build_id = static_build_id_for(target)
+    api_query_id = f"api_query:{uuid4()}"
+    now = datetime.now(UTC)
+    source_query_kind = "api_queries"
+    editor_ids: set[str] = set()
+    stored_revisions = 0
+
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+
+        async with conn.transaction():
+            await conn.execute(
+                """
+                INSERT INTO api_queries (
+                    id, static_build_id, source_type, request_url, http_status,
+                    response_json, fetched_at, status
+                )
+                VALUES ($1, $2, 'w_article_revisions', $3, 200, $4::jsonb, $5, 'success')
+                """,
+                api_query_id,
+                static_build_id,
+                revisions_payload.request_url,
+                json.dumps(revisions_payload.raw_json),
+                now,
+            )
+
+            await conn.execute(
+                "DELETE FROM w_article_revisions WHERE target_id = $1 AND article_id = $2",
+                target.target_id,
+                article_id,
+            )
+
+            for revision in revisions_payload.revisions:
+                rev_id = revision_id(revision)
+                editor_name = revision.get("user")
+
+                if rev_id is None:
+                    continue
+
+                editor_id = None
+                user_id = revision_user_id(revision)
+
+                if editor_name:
+                    editor_name = str(editor_name)
+                    editor_id = editor_id_for(target.lang, editor_name, user_id)
+                    editor_ids.add(editor_id)
+                    await conn.execute(
+                        """
+                        INSERT INTO w_editors (
+                            id, lang, editor_name, editor_page_url, created_at, updated_at
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $5)
+                        ON CONFLICT (lang, editor_name) DO UPDATE SET
+                            editor_page_url = EXCLUDED.editor_page_url,
+                            updated_at = EXCLUDED.updated_at
+                        """,
+                        editor_id,
+                        target.lang,
+                        editor_name,
+                        editor_page_url(target, editor_name),
+                        now,
+                    )
+
+                await conn.execute(
+                    """
+                    INSERT INTO w_article_revisions (
+                        id, target_id, article_id, source_query_id, source_query_kind,
+                        revision_id, parent_revision_id, editor_id, timestamp, comment,
+                        size_bytes, minor, created_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10, $11, $12, $13)
+                    ON CONFLICT (article_id, revision_id) DO UPDATE SET
+                        target_id = EXCLUDED.target_id,
+                        source_query_id = EXCLUDED.source_query_id,
+                        source_query_kind = EXCLUDED.source_query_kind,
+                        parent_revision_id = EXCLUDED.parent_revision_id,
+                        editor_id = EXCLUDED.editor_id,
+                        timestamp = EXCLUDED.timestamp,
+                        comment = EXCLUDED.comment,
+                        size_bytes = EXCLUDED.size_bytes,
+                        minor = EXCLUDED.minor
+                    """,
+                    f"w_article_revision:{target.lang}:{rev_id}",
+                    target.target_id,
+                    article_id,
+                    api_query_id,
+                    source_query_kind,
+                    rev_id,
+                    revision_parent_id(revision),
+                    editor_id,
+                    revision_timestamp(revision),
+                    revision.get("comment"),
+                    revision_size(revision),
+                    bool(revision.get("minor", False)),
+                    now,
+                )
+                stored_revisions += 1
+    finally:
+        await conn.close()
+
+    return ArticleRevisionsPersistenceResult(
+        article_id=article_id,
+        static_build_id=static_build_id,
+        api_query_id=api_query_id,
+        revisions_count=stored_revisions,
+        editors_count=len(editor_ids),
     )
