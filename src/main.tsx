@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { LoaderCircle, Moon, RefreshCw, Search, Sun, X } from "lucide-react";
 import "./styles.css";
@@ -382,6 +382,7 @@ function displayValidationMessage(
 function App() {
   const staticDashboardRoute = getStaticDashboardRoute(window.location);
   const user = mockTelegramUser;
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialThemeMode);
   const [articleUrl, setArticleUrl] = useState("");
   const [selectedSuggestionUrl, setSelectedSuggestionUrl] = useState("");
@@ -464,6 +465,7 @@ function App() {
     setSuggestions([]);
     setValidation({ status: "valid", message: "" });
     setArticleUrl(suggestion.url);
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
   }
 
   function selectCreateSuggestion() {
@@ -475,6 +477,7 @@ function App() {
     setSuggestions([]);
     setValidation({ status: "valid", message: "" });
     setArticleUrl(createValue);
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
   }
 
   async function submitSearch() {
@@ -632,6 +635,7 @@ function App() {
             <div className="input-field">
               <Search className="input-icon" aria-hidden="true" strokeWidth={2} />
               <input
+                ref={searchInputRef}
                 aria-label="Wikipedia article URL"
                 className="url-input"
                 enterKeyHint="search"
