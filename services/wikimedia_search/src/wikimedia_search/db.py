@@ -831,9 +831,9 @@ async def get_existing_article_traffic(
     if not result:
         return None
 
-    has_no_data_state = result.counts["no_data_queries_count"] > 0
+    has_complete_no_data_state = result.counts["no_data_queries_count"] >= 2
     has_any_month_capture = result.counts["months_count"] >= 1
-    return result if has_no_data_state or has_any_month_capture else None
+    return result if has_complete_no_data_state or has_any_month_capture else None
 
 
 async def persist_article_identity(

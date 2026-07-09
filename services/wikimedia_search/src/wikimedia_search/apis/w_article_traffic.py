@@ -110,10 +110,23 @@ async def fetch_article_traffic_available_months(
         month="latest",
     )
 
-    if latest.source_status != "success" or not latest.month:
+    latest_month = latest.month
+    if latest.source_status != "success" or not latest_month:
+        fallback_direction: TrafficDirection = "sources" if direction == "destinations" else "destinations"
+        fallback_latest = await fetch_article_traffic(
+            lang=lang,
+            title_slug=title_slug,
+            direction=fallback_direction,
+            client=client,
+            limit=limit,
+            month="latest",
+        )
+        latest_month = fallback_latest.month
+
+    if not latest_month:
         return [latest]
 
-    prior_month = previous_month(latest.month)
+    prior_month = previous_month(latest_month)
     prior = await fetch_article_traffic(
         lang=lang,
         title_slug=title_slug,
