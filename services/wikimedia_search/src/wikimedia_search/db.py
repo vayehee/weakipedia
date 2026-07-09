@@ -81,9 +81,9 @@ class WikidataEntityPersistenceResult:
 class ArticleTrafficPersistenceResult:
     article_id: str
     static_build_id: str
-    api_query_id: str
+    api_query_ids: tuple[str, ...]
     direction: str
-    month: str | None
+    months: tuple[str, ...]
     records_count: int
     source_status: str
     http_status: int
@@ -774,9 +774,15 @@ async def get_existing_article_traffic(
                 (SELECT count(*)
                  FROM w_article_traffic
                  WHERE target_id = $1 AND article_id = $2 AND direction = $3) AS traffic_records_count,
+                (SELECT count(DISTINCT month)
+                 FROM w_article_traffic
+                 WHERE target_id = $1 AND article_id = $2 AND direction = $3) AS months_count,
                 (SELECT count(*)
                  FROM api_queries
                  WHERE static_build_id = $4 AND source_type = $5 AND status IN ('success', 'success_no_data')) AS api_queries_count,
+                (SELECT count(*)
+                 FROM api_queries
+                 WHERE static_build_id = $4 AND source_type = $5 AND status = 'success_no_data') AS no_data_queries_count,
                 (SELECT max(month)
                  FROM w_article_traffic
                  WHERE target_id = $1 AND article_id = $2 AND direction = $3) AS month,
@@ -812,11 +818,22 @@ async def get_existing_article_traffic(
     finally:
         await conn.close()
 
-    return cache_result_from_row(
+    result = cache_result_from_row(
         row,
-        count_fields=("traffic_records_count", "api_queries_count"),
+        count_fields=(
+            "traffic_records_count",
+            "months_count",
+            "api_queries_count",
+            "no_data_queries_count",
+        ),
         detail_fields=("month", "source_status", "http_status"),
     )
+    if not result:
+        return None
+
+    has_no_data_state = result.counts["no_data_queries_count"] > 0
+    has_two_month_capture = result.counts["months_count"] >= 2
+    return result if has_no_data_state or has_two_month_capture else None
 
 
 async def persist_article_identity(
@@ -1411,54 +1428,64 @@ async def persist_article_authorship(
 
 async def persist_article_traffic(
     target: StaticTargetRecord,
-    traffic: ArticleTrafficPayload,
+    traffic_payloads: list[ArticleTrafficPayload],
 ) -> ArticleTrafficPersistenceResult:
+    if not traffic_payloads:
+        raise ValueError("No Wikinav traffic payloads were provided for persistence.")
+
     article_id = article_id_for(target)
     static_build_id = static_build_id_for(target)
-    api_query_id = f"api_query:{uuid4()}"
     now = datetime.now(UTC)
     source_query_kind = "api_queries"
-    direction_value = traffic_direction_value(traffic.direction)
-    source_type = traffic_source_type(traffic.direction)
-    status = "success" if traffic.source_status == "success" else "success_no_data"
-    response_json = traffic.raw_json if traffic.raw_json else {
-        "source": "wikinav",
-        "source_status": traffic.source_status,
-        "direction": traffic.direction,
-        "title": traffic.title,
-        "error_text": traffic.error_text,
-    }
-    error_message = (
-        None
-        if traffic.source_status == "success"
-        else "Wikinav returned HTTP 404; stored as no traffic data available for this direction."
-    )
+    direction_value = traffic_direction_value(traffic_payloads[0].direction)
+    source_type = traffic_source_type(traffic_payloads[0].direction)
+    api_query_ids: list[str] = []
+    months: list[str] = []
+    stored_records = 0
+    successful_payloads = [payload for payload in traffic_payloads if payload.source_status == "success"]
 
     conn = await connect()
     try:
         await ensure_schema(conn)
 
         async with conn.transaction():
-            await conn.execute(
-                """
-                INSERT INTO api_queries (
-                    id, static_build_id, source_type, request_url, http_status,
-                    response_json, fetched_at, status, error_message
+            for traffic in traffic_payloads:
+                api_query_id = f"api_query:{uuid4()}"
+                api_query_ids.append(api_query_id)
+                status = "success" if traffic.source_status == "success" else "success_no_data"
+                response_json = traffic.raw_json if traffic.raw_json else {
+                    "source": "wikinav",
+                    "source_status": traffic.source_status,
+                    "direction": traffic.direction,
+                    "title": traffic.title,
+                    "error_text": traffic.error_text,
+                }
+                error_message = (
+                    None
+                    if traffic.source_status == "success"
+                    else "Wikinav returned HTTP 404; stored as no traffic data available for this direction."
                 )
-                VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
-                """,
-                api_query_id,
-                static_build_id,
-                source_type,
-                traffic.request_url,
-                traffic.http_status,
-                json.dumps(response_json),
-                now,
-                status,
-                error_message,
-            )
 
-            if traffic.source_status == "success":
+                await conn.execute(
+                    """
+                    INSERT INTO api_queries (
+                        id, static_build_id, source_type, request_url, http_status,
+                        response_json, fetched_at, status, error_message
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+                    """,
+                    api_query_id,
+                    static_build_id,
+                    source_type,
+                    traffic.request_url,
+                    traffic.http_status,
+                    json.dumps(response_json),
+                    now,
+                    status,
+                    error_message,
+                )
+
+            if successful_payloads:
                 await conn.execute(
                     """
                     DELETE FROM w_article_traffic
@@ -1469,6 +1496,14 @@ async def persist_article_traffic(
                     direction_value,
                 )
 
+            for index, traffic in enumerate(traffic_payloads):
+                if traffic.source_status != "success":
+                    continue
+
+                if traffic.month:
+                    months.append(traffic.month)
+
+                api_query_id = api_query_ids[index]
                 for result in traffic.results:
                     title = str(result.get("title") or "")
                     if not title:
@@ -1509,18 +1544,26 @@ async def persist_article_traffic(
                         traffic_title_url(target, title),
                         now,
                     )
+                    stored_records += 1
     finally:
         await conn.close()
+
+    if all(payload.source_status == "success" for payload in traffic_payloads):
+        source_status = "success"
+    elif any(payload.source_status == "success" for payload in traffic_payloads):
+        source_status = "partial_success_no_data"
+    else:
+        source_status = "success_no_data"
 
     return ArticleTrafficPersistenceResult(
         article_id=article_id,
         static_build_id=static_build_id,
-        api_query_id=api_query_id,
+        api_query_ids=tuple(api_query_ids),
         direction=direction_value,
-        month=traffic.month,
-        records_count=len(traffic.results) if traffic.source_status == "success" else 0,
-        source_status=status,
-        http_status=traffic.http_status,
+        months=tuple(months),
+        records_count=stored_records,
+        source_status=source_status,
+        http_status=max(payload.http_status for payload in traffic_payloads),
     )
 
 

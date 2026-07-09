@@ -11,7 +11,7 @@ from wikimedia_search.apis.w_article_authorship import fetch_article_authorship
 from wikimedia_search.apis.w_article_pageviews import fetch_article_pageviews
 from wikimedia_search.apis.w_article_parse import fetch_article_parse
 from wikimedia_search.apis.w_article_revisions import fetch_article_revisions
-from wikimedia_search.apis.w_article_traffic import fetch_article_traffic
+from wikimedia_search.apis.w_article_traffic import fetch_article_traffic_available_months
 from wikimedia_search.apis.wdata_item import fetch_wikidata_entity
 from wikimedia_search.db import (
     DatabaseNotConfiguredError,
@@ -245,22 +245,24 @@ async def run_traffic(
                 f"Reused stored Wikinav {direction_label} traffic state: "
                 f"records={existing.counts['traffic_records_count']}, "
                 f"api_queries={existing.counts['api_queries_count']}, "
-                f"month={existing.details.get('month') or 'none'}, "
+                f"months={existing.counts.get('months_count', 0)}, "
+                f"latest_month={existing.details.get('month') or 'none'}, "
                 f"source_status={existing.details.get('source_status') or 'unknown'}, "
                 f"http_status={existing.details.get('http_status') or 'unknown'}, "
                 f"earliest_record_at={earliest_record_at(existing)}."
             ),
         )
 
-    traffic = await fetch_article_traffic(
+    traffic_payloads = await fetch_article_traffic_available_months(
         lang=target.lang,
         title_slug=target.title_slug,
         direction=direction,
         client=client,
+        limit=500,
     )
 
     try:
-        persistence = await persist_article_traffic(target, traffic)
+        persistence = await persist_article_traffic(target, traffic_payloads)
     except DatabaseNotConfiguredError as error:
         raise StaticBuildStepError(str(error)) from error
     except Exception as error:
@@ -273,7 +275,7 @@ async def run_traffic(
             message=(
                 f"Stored Wikinav {direction_label} traffic no-data state: "
                 f"source_status={persistence.source_status}, http_status={persistence.http_status}, "
-                f"records=0, api_query_id={persistence.api_query_id}."
+                f"records=0, api_queries={len(persistence.api_query_ids)}."
             ),
         )
 
@@ -282,9 +284,8 @@ async def run_traffic(
         status="success",
         message=(
             f"Stored {persistence.records_count} Wikinav {direction_label} traffic records "
-            f"for month={persistence.month or 'unknown'}, "
-            f"total_count={traffic.total_count if traffic.total_count is not None else 'unknown'}, "
-            f"api_query_id={persistence.api_query_id}."
+            f"for months={', '.join(persistence.months) or 'unknown'}, "
+            f"api_queries={len(persistence.api_query_ids)}."
         ),
     )
 

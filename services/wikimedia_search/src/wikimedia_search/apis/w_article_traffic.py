@@ -26,6 +26,17 @@ class ArticleTrafficPayload:
     error_text: str | None = None
 
 
+def previous_month(month: str) -> str:
+    year_text, month_text = month.split("-", 1)
+    year = int(year_text)
+    month_number = int(month_text)
+
+    if month_number == 1:
+        return f"{year - 1}-12"
+
+    return f"{year}-{month_number - 1:02d}"
+
+
 async def fetch_article_traffic(
     *,
     lang: str,
@@ -35,10 +46,11 @@ async def fetch_article_traffic(
     start: int = 1,
     limit: int = 500,
     sort: str = "desc",
+    month: str = "latest",
 ) -> ArticleTrafficPayload:
     url = (
         f"https://wikinav.wmcloud.org/api/v1/{lang}/"
-        f"{quote(title_slug, safe='')}/{direction}/latest"
+        f"{quote(title_slug, safe='')}/{direction}/{month}"
     )
     params = {
         "start": str(start),
@@ -79,3 +91,36 @@ async def fetch_article_traffic(
         http_status=response.status_code,
         source_status="success",
     )
+
+
+async def fetch_article_traffic_available_months(
+    *,
+    lang: str,
+    title_slug: str,
+    direction: TrafficDirection,
+    client: httpx.AsyncClient,
+    limit: int = 500,
+) -> list[ArticleTrafficPayload]:
+    latest = await fetch_article_traffic(
+        lang=lang,
+        title_slug=title_slug,
+        direction=direction,
+        client=client,
+        limit=limit,
+        month="latest",
+    )
+
+    if latest.source_status != "success" or not latest.month:
+        return [latest]
+
+    prior_month = previous_month(latest.month)
+    prior = await fetch_article_traffic(
+        lang=lang,
+        title_slug=title_slug,
+        direction=direction,
+        client=client,
+        limit=limit,
+        month=prior_month,
+    )
+
+    return [latest, prior]
