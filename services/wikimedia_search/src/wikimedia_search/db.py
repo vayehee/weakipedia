@@ -452,23 +452,6 @@ def traffic_source_type(direction: TrafficDirection) -> str:
     return "w_article_traffic_incoming" if direction == "sources" else "w_article_traffic_outgoing"
 
 
-def traffic_title_type(title: str) -> str:
-    if title.startswith("other-"):
-        return title
-
-    if ":" in title:
-        return "namespace"
-
-    return "article"
-
-
-def traffic_title_url(target: StaticTargetRecord, title: str) -> str | None:
-    if title.startswith("other-"):
-        return None
-
-    return linked_wikipedia_url(target, title)
-
-
 def normalized_external_url(url: str) -> str:
     return url.strip()
 
@@ -1540,8 +1523,8 @@ async def persist_article_traffic(
                         direction_value,
                         title,
                         int(views) if views is not None else None,
-                        traffic_title_type(title),
-                        traffic_title_url(target, title),
+                        result.get("title_type"),
+                        result.get("url"),
                         now,
                     )
                     stored_records += 1
