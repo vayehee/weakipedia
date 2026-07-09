@@ -72,7 +72,7 @@ def static_target_response(target: StaticTargetRecord) -> StaticTargetResponse:
             f"/static?target={quote(target.title_slug, safe='_:()')}"
             f"&lang={target.lang}"
             f"&title={quote(target.title_slug, safe='_:()')}"
-            "&view=stats"
+            "&view=overview"
         ),
         articleMetadata=ArticleMetadataResponse(
             lang=metadata.lang,

@@ -67,7 +67,7 @@ type StaticBuildStepRunResponse = {
 type ThemeMode = "light" | "dark";
 
 const DASHBOARD_TABS = [
-  { id: "stats", label: "Overview" },
+  { id: "overview", label: "Overview" },
   { id: "views", label: "Views" },
   { id: "news", label: "News" },
   { id: "traffic", label: "Traffic" },
@@ -287,11 +287,15 @@ function exactSearchTermSuggestions(suggestions: Suggestion[], searchTerm: strin
 }
 
 function getDashboardView(value: string | null): DashboardView {
-  return DASHBOARD_TABS.some((tab) => tab.id === value) ? (value as DashboardView) : "stats";
+  if (value === "stats") {
+    return "overview";
+  }
+
+  return DASHBOARD_TABS.some((tab) => tab.id === value) ? (value as DashboardView) : "overview";
 }
 
 function getDashboardViewLabel(view: DashboardView) {
-  if (view === "stats") {
+  if (view === "overview") {
     return "OVERVIEW";
   }
 

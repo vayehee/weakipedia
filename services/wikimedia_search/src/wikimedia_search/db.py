@@ -140,7 +140,7 @@ def wikidata_url(qid: str) -> str:
 
 def public_route_for(target: StaticTargetRecord) -> str:
     title = quote(target.title_slug, safe="_:()")
-    return f"/static?target={title}&lang={target.lang}&title={title}&view=stats"
+    return f"/static?target={title}&lang={target.lang}&title={title}&view=overview"
 
 
 async def persist_article_identity(
