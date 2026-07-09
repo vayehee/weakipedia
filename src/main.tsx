@@ -129,24 +129,8 @@ const STATIC_BUILD_STEPS = [
     label: "Mapping incoming traffic pathways to the article...",
   },
   {
-    id: "pageviews_human",
-    label: "Measuring human readership over time...",
-  },
-  {
-    id: "pageviews_mobile_web",
-    label: "Measuring mobile web readership over time...",
-  },
-  {
-    id: "pageviews_mobile_app",
-    label: "Measuring mobile app readership over time...",
-  },
-  {
-    id: "pageviews_spider",
-    label: "Measuring crawler and spider access patterns...",
-  },
-  {
-    id: "pageviews_automated",
-    label: "Measuring machine access patterns...",
+    id: "article_pageviews",
+    label: "Mapping human and machine article access across available platforms...",
   },
   {
     id: "editor_summary",

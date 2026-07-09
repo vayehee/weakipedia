@@ -8,7 +8,7 @@ import httpx
 
 from wikimedia_search.apis.w_article_editors import summarize_article_editors
 from wikimedia_search.apis.w_article_authorship import fetch_article_authorship
-from wikimedia_search.apis.w_article_pageviews import fetch_article_pageviews
+from wikimedia_search.apis.w_article_pageviews import fetch_article_pageview_streams
 from wikimedia_search.apis.w_article_parse import fetch_article_parse
 from wikimedia_search.apis.w_article_revisions import fetch_article_revisions
 from wikimedia_search.apis.w_article_traffic import fetch_article_traffic_available_months
@@ -18,11 +18,13 @@ from wikimedia_search.db import (
     StaticStepCacheResult,
     get_existing_article_authorship,
     get_existing_article_identity,
+    get_existing_article_pageviews,
     get_existing_article_parse,
     get_existing_article_revisions,
     get_existing_article_traffic,
     get_existing_wikidata_entity,
     persist_article_identity,
+    persist_article_pageviews,
     persist_article_parse,
     persist_article_authorship,
     persist_article_revisions,
@@ -37,11 +39,7 @@ StaticBuildStepId = Literal[
     "article_parse",
     "article_revisions",
     "article_authorship",
-    "pageviews_human",
-    "pageviews_mobile_web",
-    "pageviews_mobile_app",
-    "pageviews_spider",
-    "pageviews_automated",
+    "article_pageviews",
     "traffic_incoming",
     "traffic_outgoing",
     "editor_summary",
@@ -200,31 +198,49 @@ async def run_article_revisions(target: StaticTargetRecord, client: httpx.AsyncC
     )
 
 
-async def run_pageviews(
-    target: StaticTargetRecord,
-    client: httpx.AsyncClient,
-    *,
-    access: str,
-    agent: str,
-    step_id: str,
-) -> StaticBuildStepResult:
+async def run_article_pageviews(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
+    existing = await get_existing_article_pageviews(target)
+    if existing:
+        return StaticBuildStepResult(
+            step_id="article_pageviews",
+            status="success",
+            message=(
+                "Reused stored Wikimedia pageview streams: "
+                f"rows={existing.counts['rows_count']}, "
+                f"api_queries={existing.counts['api_queries_count']}, "
+                f"range={existing.details.get('start_date')} to {existing.details.get('end_date')}, "
+                f"earliest_record_at={earliest_record_at(existing)}."
+            ),
+        )
+
     start, end = pageview_dates()
-    pageviews = await fetch_article_pageviews(
+    pageview_payloads = await fetch_article_pageview_streams(
         lang=target.lang,
         title_slug=target.title_slug,
-        access=access,
-        agent=agent,
         start=start,
         end=end,
         client=client,
     )
-    raise stuck_after_fetch(
-        fetched=(
-            f"{len(pageviews.items)} pageview points for project={pageviews.project}, access={access}, "
-            f"agent={agent}, range={start}-{end}"
+
+    try:
+        persistence = await persist_article_pageviews(target, pageview_payloads)
+    except DatabaseNotConfiguredError as error:
+        raise StaticBuildStepError(str(error)) from error
+    except Exception as error:
+        raise StaticBuildStepError(f"Database persistence failed during article pageviews: {error}.") from error
+
+    stream_summary = ", ".join(
+        f"{payload.stream_id}={len(payload.items)}" for payload in pageview_payloads
+    )
+    return StaticBuildStepResult(
+        step_id="article_pageviews",
+        status="success",
+        message=(
+            "Stored Wikimedia pageview streams: "
+            f"rows={persistence.rows_count}, points={persistence.points_count}, "
+            f"api_queries={len(persistence.api_query_ids)}, range={persistence.start}-{persistence.end}, "
+            f"streams={stream_summary}."
         ),
-        stuck_at="pageview normalization and persistence",
-        next_fix="write static article view rows into w_article_views with target_id, access, agent, date, and views",
     )
 
 
@@ -435,41 +451,12 @@ STATIC_BUILD_STEP_RUNNERS: dict[str, StepRunner] = {
     "article_parse": run_article_parse,
     "article_revisions": run_article_revisions,
     "article_authorship": run_article_authorship,
-    "pageviews_human": lambda target, client: run_pageviews(
-        target,
-        client,
-        access="all-access",
-        agent="user",
-        step_id="pageviews_human",
-    ),
-    "pageviews_mobile_web": lambda target, client: run_pageviews(
-        target,
-        client,
-        access="mobile-web",
-        agent="user",
-        step_id="pageviews_mobile_web",
-    ),
-    "pageviews_mobile_app": lambda target, client: run_pageviews(
-        target,
-        client,
-        access="mobile-app",
-        agent="user",
-        step_id="pageviews_mobile_app",
-    ),
-    "pageviews_spider": lambda target, client: run_pageviews(
-        target,
-        client,
-        access="all-access",
-        agent="spider",
-        step_id="pageviews_spider",
-    ),
-    "pageviews_automated": lambda target, client: run_pageviews(
-        target,
-        client,
-        access="all-access",
-        agent="automated",
-        step_id="pageviews_automated",
-    ),
+    "article_pageviews": run_article_pageviews,
+    "pageviews_human": run_article_pageviews,
+    "pageviews_mobile_web": run_article_pageviews,
+    "pageviews_mobile_app": run_article_pageviews,
+    "pageviews_spider": run_article_pageviews,
+    "pageviews_automated": run_article_pageviews,
     "traffic_incoming": lambda target, client: run_traffic(
         target,
         client,

@@ -4,7 +4,7 @@ import json
 import os
 import hashlib
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import quote, urlparse
 from uuid import uuid4
@@ -14,6 +14,7 @@ import asyncpg
 from wikimedia_search.apis.w_article_parse import ArticleParsePayload
 from wikimedia_search.apis.w_article_revisions import ArticleRevisionsPayload
 from wikimedia_search.apis.w_article_authorship import ArticleAuthorshipPayload
+from wikimedia_search.apis.w_article_pageviews import ArticlePageviewsPayload
 from wikimedia_search.apis.w_article_traffic import ArticleTrafficPayload, TrafficDirection
 from wikimedia_search.apis.wdata_item import WikidataEntityPayload
 from wikimedia_search.static_targets import StaticTargetRecord
@@ -87,6 +88,17 @@ class ArticleTrafficPersistenceResult:
     records_count: int
     source_status: str
     http_status: int
+
+
+@dataclass(frozen=True)
+class ArticlePageviewsPersistenceResult:
+    article_id: str
+    static_build_id: str
+    api_query_ids: tuple[str, ...]
+    start: str
+    end: str
+    rows_count: int
+    points_count: int
 
 
 @dataclass(frozen=True)
@@ -331,6 +343,23 @@ async def ensure_schema(conn: asyncpg.Connection) -> None:
             UNIQUE(target_id, article_id, month, direction, title)
         );
 
+        CREATE TABLE IF NOT EXISTS w_article_views (
+            id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL REFERENCES targets(id),
+            article_id TEXT NOT NULL REFERENCES w_articles(id),
+            source_query_id TEXT NOT NULL REFERENCES api_queries(id),
+            source_query_kind TEXT NOT NULL,
+            date DATE NOT NULL,
+            desktop_views INTEGER,
+            mobile_web_views INTEGER,
+            mobile_app_views INTEGER,
+            spider_views INTEGER,
+            automated_views INTEGER,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(target_id, article_id, date)
+        );
+
         CREATE TABLE IF NOT EXISTS wdata_item_labels (
             id TEXT PRIMARY KEY,
             wdata_item_id TEXT NOT NULL REFERENCES wdata_items(id),
@@ -514,6 +543,29 @@ def revision_timestamp(revision: dict) -> datetime | None:
         return None
 
     return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def pageview_item_date(item: dict) -> date | None:
+    timestamp = str(item.get("timestamp") or "")
+    if len(timestamp) < 8:
+        return None
+
+    return date(int(timestamp[:4]), int(timestamp[4:6]), int(timestamp[6:8]))
+
+
+def pageview_item_views(item: dict) -> int | None:
+    value = item.get("views")
+    return int(value) if value is not None else None
+
+
+def pageview_column(stream_id: str) -> str:
+    return {
+        "human": "desktop_views",
+        "mobile_web": "mobile_web_views",
+        "mobile_app": "mobile_app_views",
+        "spider": "spider_views",
+        "automated": "automated_views",
+    }[stream_id]
 
 
 def cache_result_from_row(
@@ -817,6 +869,46 @@ async def get_existing_article_traffic(
     has_complete_no_data_state = result.counts["no_data_queries_count"] >= 2
     has_any_month_capture = result.counts["months_count"] >= 1
     return result if has_complete_no_data_state or has_any_month_capture else None
+
+
+async def get_existing_article_pageviews(target: StaticTargetRecord) -> StaticStepCacheResult | None:
+    article_id = article_id_for(target)
+    static_build_id = static_build_id_for(target)
+
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+        row = await conn.fetchrow(
+            """
+            SELECT
+                (SELECT count(*)
+                 FROM w_article_views
+                 WHERE target_id = $1 AND article_id = $2) AS rows_count,
+                (SELECT count(*)
+                 FROM api_queries
+                 WHERE static_build_id = $3 AND source_type LIKE 'w_article_pageviews_%' AND status = 'success') AS api_queries_count,
+                (SELECT min(date)
+                 FROM w_article_views
+                 WHERE target_id = $1 AND article_id = $2) AS start_date,
+                (SELECT max(date)
+                 FROM w_article_views
+                 WHERE target_id = $1 AND article_id = $2) AS end_date,
+                (SELECT min(created_at)
+                 FROM w_article_views
+                 WHERE target_id = $1 AND article_id = $2) AS earliest_record_at
+            """,
+            target.target_id,
+            article_id,
+            static_build_id,
+        )
+    finally:
+        await conn.close()
+
+    return cache_result_from_row(
+        row,
+        count_fields=("rows_count", "api_queries_count"),
+        detail_fields=("start_date", "end_date"),
+    )
 
 
 async def persist_article_identity(
@@ -1547,6 +1639,111 @@ async def persist_article_traffic(
         records_count=stored_records,
         source_status=source_status,
         http_status=max(payload.http_status for payload in traffic_payloads),
+    )
+
+
+async def persist_article_pageviews(
+    target: StaticTargetRecord,
+    pageview_payloads: list[ArticlePageviewsPayload],
+) -> ArticlePageviewsPersistenceResult:
+    if not pageview_payloads:
+        raise ValueError("No Wikimedia pageview payloads were provided for persistence.")
+
+    article_id = article_id_for(target)
+    static_build_id = static_build_id_for(target)
+    now = datetime.now(UTC)
+    source_query_kind = "api_queries"
+    api_query_ids: list[str] = []
+    values_by_date: dict[str, dict[str, int | None]] = {}
+    source_query_by_date: dict[str, str] = {}
+    points_count = 0
+    start = min(payload.start for payload in pageview_payloads)
+    end = max(payload.end for payload in pageview_payloads)
+
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+
+        async with conn.transaction():
+            await conn.execute(
+                "DELETE FROM w_article_views WHERE target_id = $1 AND article_id = $2",
+                target.target_id,
+                article_id,
+            )
+
+            for payload in pageview_payloads:
+                api_query_id = f"api_query:{uuid4()}"
+                api_query_ids.append(api_query_id)
+                await conn.execute(
+                    """
+                    INSERT INTO api_queries (
+                        id, static_build_id, source_type, request_url, http_status,
+                        response_json, fetched_at, status
+                    )
+                    VALUES ($1, $2, $3, $4, 200, $5::jsonb, $6, 'success')
+                    """,
+                    api_query_id,
+                    static_build_id,
+                    f"w_article_pageviews_{payload.stream_id}",
+                    payload.request_url,
+                    json.dumps(payload.raw_json),
+                    now,
+                )
+
+                column = pageview_column(payload.stream_id)
+                for item in payload.items:
+                    item_date = pageview_item_date(item)
+                    if not item_date:
+                        continue
+
+                    values_by_date.setdefault(item_date, {})
+                    values_by_date[item_date][column] = pageview_item_views(item)
+                    source_query_by_date[item_date] = api_query_id
+                    points_count += 1
+
+            for item_date, values in values_by_date.items():
+                await conn.execute(
+                    """
+                    INSERT INTO w_article_views (
+                        id, target_id, article_id, source_query_id, source_query_kind,
+                        date, desktop_views, mobile_web_views, mobile_app_views,
+                        spider_views, automated_views, created_at, updated_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8, $9, $10, $11, $12, $12)
+                    ON CONFLICT (target_id, article_id, date) DO UPDATE SET
+                        source_query_id = EXCLUDED.source_query_id,
+                        source_query_kind = EXCLUDED.source_query_kind,
+                        desktop_views = EXCLUDED.desktop_views,
+                        mobile_web_views = EXCLUDED.mobile_web_views,
+                        mobile_app_views = EXCLUDED.mobile_app_views,
+                        spider_views = EXCLUDED.spider_views,
+                        automated_views = EXCLUDED.automated_views,
+                        updated_at = EXCLUDED.updated_at
+                    """,
+                    stable_row_id("w_article_view", target.target_id, article_id, item_date),
+                    target.target_id,
+                    article_id,
+                    source_query_by_date[item_date],
+                    source_query_kind,
+                    item_date,
+                    values.get("desktop_views"),
+                    values.get("mobile_web_views"),
+                    values.get("mobile_app_views"),
+                    values.get("spider_views"),
+                    values.get("automated_views"),
+                    now,
+                )
+    finally:
+        await conn.close()
+
+    return ArticlePageviewsPersistenceResult(
+        article_id=article_id,
+        static_build_id=static_build_id,
+        api_query_ids=tuple(api_query_ids),
+        start=start,
+        end=end,
+        rows_count=len(values_by_date),
+        points_count=points_count,
     )
 
 
