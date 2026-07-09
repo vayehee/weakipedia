@@ -7,6 +7,7 @@ from typing import Awaitable, Callable, Literal
 import httpx
 
 from wikimedia_search.apis.w_article_editors import summarize_article_editors
+from wikimedia_search.apis.g_trends import GoogleTrendsConfigError, fetch_google_trends_timeseries
 from wikimedia_search.apis.w_article_authorship import fetch_article_authorship
 from wikimedia_search.apis.w_article_pageviews import fetch_article_pageview_streams
 from wikimedia_search.apis.w_article_parse import fetch_article_parse
@@ -19,12 +20,14 @@ from wikimedia_search.db import (
     get_existing_article_authorship,
     get_existing_article_identity,
     get_existing_article_pageviews,
+    get_existing_google_trends,
     get_existing_article_parse,
     get_existing_article_revisions,
     get_existing_article_traffic,
     get_existing_wikidata_entity,
     persist_article_identity,
     persist_article_pageviews,
+    persist_google_trends,
     persist_article_parse,
     persist_article_authorship,
     persist_article_revisions,
@@ -442,9 +445,39 @@ async def run_claim_sources(target: StaticTargetRecord, client: httpx.AsyncClien
 
 
 async def run_google_trends(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
-    return await run_not_implemented(
-        "google_trends",
-        "Google Trends connector is not configured yet.",
+    existing = await get_existing_google_trends(target)
+    if existing:
+        return StaticBuildStepResult(
+            step_id="google_trends",
+            status="success",
+            message=(
+                "Reused stored SerpAPI Google Trends daily interest: "
+                f"rows={existing.counts['rows_count']}, "
+                f"range={existing.details.get('start_date')} to {existing.details.get('end_date')}, "
+                f"earliest_record_at={earliest_record_at(existing)}."
+            ),
+        )
+
+    try:
+        trends = await fetch_google_trends_timeseries(
+            query_title=target.canonical_title,
+            client=client,
+        )
+        persistence = await persist_google_trends(target, trends)
+    except (GoogleTrendsConfigError, DatabaseNotConfiguredError) as error:
+        raise StaticBuildStepError(str(error)) from error
+    except Exception as error:
+        raise StaticBuildStepError(f"SerpAPI Google Trends processing failed: {error}.") from error
+
+    return StaticBuildStepResult(
+        step_id="google_trends",
+        status="success",
+        message=(
+            "Stored SerpAPI Google Trends daily interest: "
+            f"query={persistence.query}, rows={persistence.rows_count}, "
+            f"range={persistence.start} to {persistence.end}, "
+            f"api_query_id={persistence.api_query_id}."
+        ),
     )
 
 

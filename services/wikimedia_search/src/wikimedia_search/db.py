@@ -14,6 +14,7 @@ import asyncpg
 from wikimedia_search.apis.w_article_parse import ArticleParsePayload
 from wikimedia_search.apis.w_article_revisions import ArticleRevisionsPayload
 from wikimedia_search.apis.w_article_authorship import ArticleAuthorshipPayload
+from wikimedia_search.apis.g_trends import GoogleTrendsPayload
 from wikimedia_search.apis.w_article_pageviews import ArticlePageviewsPayload
 from wikimedia_search.apis.w_article_traffic import ArticleTrafficPayload, TrafficDirection
 from wikimedia_search.apis.wdata_item import WikidataEntityPayload
@@ -99,6 +100,17 @@ class ArticlePageviewsPersistenceResult:
     end: str
     rows_count: int
     points_count: int
+
+
+@dataclass(frozen=True)
+class GoogleTrendsPersistenceResult:
+    target_id: str
+    static_build_id: str
+    api_query_id: str
+    rows_count: int
+    query: str
+    start: str
+    end: str
 
 
 @dataclass(frozen=True)
@@ -367,6 +379,30 @@ async def ensure_schema(conn: asyncpg.Connection) -> None:
 
         ALTER TABLE w_article_views
             ADD COLUMN IF NOT EXISTS machine_access INTEGER;
+
+        CREATE TABLE IF NOT EXISTS g_trends (
+            id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL REFERENCES targets(id),
+            source_query_id TEXT NOT NULL REFERENCES api_queries(id),
+            source_query_kind TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            date DATE NOT NULL,
+            score INTEGER NOT NULL,
+            region TEXT NOT NULL DEFAULT '',
+            query TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(target_id, entity_type, entity_id, date, region, query)
+        );
+
+        UPDATE g_trends SET region = '' WHERE region IS NULL;
+
+        ALTER TABLE g_trends
+            ALTER COLUMN region SET DEFAULT '';
+
+        ALTER TABLE g_trends
+            ALTER COLUMN region SET NOT NULL;
 
         CREATE TABLE IF NOT EXISTS wdata_item_labels (
             id TEXT PRIMARY KEY,
@@ -937,6 +973,34 @@ async def get_existing_article_pageviews(
         return result
 
     return None
+
+
+async def get_existing_google_trends(target: StaticTargetRecord) -> StaticStepCacheResult | None:
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+        row = await conn.fetchrow(
+            """
+            SELECT
+                count(*) AS rows_count,
+                min(date) AS start_date,
+                max(date) AS end_date,
+                min(created_at) AS earliest_record_at
+            FROM g_trends
+            WHERE target_id = $1 AND entity_type = $2 AND entity_id = $3
+            """,
+            target.target_id,
+            target.entity_type,
+            str(target.article_metadata.page_id),
+        )
+    finally:
+        await conn.close()
+
+    return cache_result_from_row(
+        row,
+        count_fields=("rows_count",),
+        detail_fields=("start_date", "end_date"),
+    )
 
 
 async def persist_article_identity(
@@ -1785,6 +1849,94 @@ async def persist_article_pageviews(
         end=end,
         rows_count=len(values_by_date),
         points_count=points_count,
+    )
+
+
+async def persist_google_trends(
+    target: StaticTargetRecord,
+    trends: GoogleTrendsPayload,
+) -> GoogleTrendsPersistenceResult:
+    static_build_id = static_build_id_for(target)
+    api_query_id = f"api_query:{uuid4()}"
+    now = datetime.now(UTC)
+    source_query_kind = "api_queries"
+    entity_id = str(target.article_metadata.page_id)
+
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+
+        async with conn.transaction():
+            await conn.execute(
+                """
+                INSERT INTO api_queries (
+                    id, static_build_id, source_type, request_url, http_status,
+                    response_json, fetched_at, status
+                )
+                VALUES ($1, $2, 'g_trends', $3, 200, $4::jsonb, $5, 'success')
+                """,
+                api_query_id,
+                static_build_id,
+                trends.stored_request_url,
+                json.dumps(trends.raw_json),
+                now,
+            )
+
+            await conn.execute(
+                """
+                DELETE FROM g_trends
+                WHERE target_id = $1 AND entity_type = $2 AND entity_id = $3 AND query = $4
+                """,
+                target.target_id,
+                target.entity_type,
+                entity_id,
+                trends.query,
+            )
+
+            for point in trends.points:
+                await conn.execute(
+                    """
+                    INSERT INTO g_trends (
+                        id, target_id, source_query_id, source_query_kind,
+                        entity_type, entity_id, date, score, region, query,
+                        created_at, updated_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8, '', $9, $10, $10)
+                    ON CONFLICT (target_id, entity_type, entity_id, date, region, query) DO UPDATE SET
+                        source_query_id = EXCLUDED.source_query_id,
+                        source_query_kind = EXCLUDED.source_query_kind,
+                        score = EXCLUDED.score,
+                        updated_at = EXCLUDED.updated_at
+                    """,
+                    stable_row_id(
+                        "g_trends",
+                        target.target_id,
+                        target.entity_type,
+                        entity_id,
+                        point.date.isoformat(),
+                        trends.query,
+                    ),
+                    target.target_id,
+                    api_query_id,
+                    source_query_kind,
+                    target.entity_type,
+                    entity_id,
+                    point.date,
+                    point.value,
+                    trends.query,
+                    now,
+                )
+    finally:
+        await conn.close()
+
+    return GoogleTrendsPersistenceResult(
+        target_id=target.target_id,
+        static_build_id=static_build_id,
+        api_query_id=api_query_id,
+        rows_count=len(trends.points),
+        query=trends.query,
+        start=trends.start,
+        end=trends.end,
     )
 
 
