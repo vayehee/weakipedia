@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from uuid import uuid4
 
 import asyncpg
 
+from wikimedia_search.apis.w_article_parse import ArticleParsePayload
 from wikimedia_search.static_targets import StaticTargetRecord
 
 
@@ -24,6 +26,19 @@ class ArticleIdentityPersistenceResult:
     wikidata_item_id: str | None
     static_build_id: str
     api_query_id: str
+
+
+@dataclass(frozen=True)
+class ArticleParsePersistenceResult:
+    article_id: str
+    static_build_id: str
+    api_query_id: str
+    sections_count: int
+    links_count: int
+    categories_count: int
+    templates_count: int
+    external_sources_count: int
+    latest_revid: int | None
 
 
 _schema_ready = False
@@ -125,6 +140,74 @@ async def ensure_schema(conn: asyncpg.Connection) -> None:
             status TEXT NOT NULL,
             error_message TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS w_article_sections (
+            id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL REFERENCES targets(id),
+            article_id TEXT NOT NULL REFERENCES w_articles(id),
+            source_query_id TEXT NOT NULL REFERENCES api_queries(id),
+            source_query_kind TEXT NOT NULL,
+            section_index TEXT NOT NULL,
+            section_title TEXT NOT NULL,
+            level INTEGER,
+            anchor TEXT,
+            text_hash TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(target_id, article_id, section_index)
+        );
+
+        CREATE TABLE IF NOT EXISTS w_article_links (
+            id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL REFERENCES targets(id),
+            article_id TEXT NOT NULL REFERENCES w_articles(id),
+            source_query_id TEXT NOT NULL REFERENCES api_queries(id),
+            source_query_kind TEXT NOT NULL,
+            linked_lang TEXT,
+            linked_title TEXT NOT NULL,
+            linked_url TEXT,
+            section_id TEXT REFERENCES w_article_sections(id),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS w_article_categories (
+            id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL REFERENCES targets(id),
+            article_id TEXT NOT NULL REFERENCES w_articles(id),
+            source_query_id TEXT NOT NULL REFERENCES api_queries(id),
+            source_query_kind TEXT NOT NULL,
+            category_title TEXT NOT NULL,
+            sort_key TEXT,
+            hidden BOOLEAN,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(target_id, article_id, category_title)
+        );
+
+        CREATE TABLE IF NOT EXISTS w_article_templates (
+            id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL REFERENCES targets(id),
+            article_id TEXT NOT NULL REFERENCES w_articles(id),
+            source_query_id TEXT NOT NULL REFERENCES api_queries(id),
+            source_query_kind TEXT NOT NULL,
+            template_title TEXT NOT NULL,
+            template_namespace INTEGER,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(target_id, article_id, template_title)
+        );
+
+        CREATE TABLE IF NOT EXISTS target_sources (
+            id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL REFERENCES targets(id),
+            url TEXT NOT NULL,
+            canonical_url TEXT NOT NULL,
+            domain TEXT,
+            title TEXT,
+            source_text TEXT,
+            source_text_hash TEXT,
+            fetched_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(target_id, canonical_url)
+        );
         """
     )
     _schema_ready = True
@@ -143,13 +226,46 @@ def public_route_for(target: StaticTargetRecord) -> str:
     return f"/static?target={title}&lang={target.lang}&title={title}&view=overview"
 
 
+def static_build_id_for(target: StaticTargetRecord) -> str:
+    return f"static_build:{target.target_id}"
+
+
+def stable_row_id(prefix: str, *parts: object) -> str:
+    source = ":".join(str(part) for part in parts)
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:24]
+    return f"{prefix}:{digest}"
+
+
+def link_title(link: dict) -> str | None:
+    title = link.get("title") or link.get("*")
+    return str(title) if title else None
+
+
+def category_title(category: dict) -> str | None:
+    title = category.get("category") or category.get("*")
+    return str(title) if title else None
+
+
+def template_title(template: dict) -> str | None:
+    title = template.get("title") or template.get("*")
+    return str(title) if title else None
+
+
+def linked_wikipedia_url(target: StaticTargetRecord, title: str) -> str:
+    return f"https://{target.article_metadata.host}/wiki/{quote(title.replace(' ', '_'), safe='_:()')}"
+
+
+def normalized_external_url(url: str) -> str:
+    return url.strip()
+
+
 async def persist_article_identity(
     target: StaticTargetRecord,
 ) -> ArticleIdentityPersistenceResult:
     metadata = target.article_metadata
     article_id = article_id_for(target)
     wikidata_item_id = metadata.wikidata_qid
-    static_build_id = f"static_build:{target.target_id}"
+    static_build_id = static_build_id_for(target)
     api_query_id = f"api_query:{uuid4()}"
     now = datetime.now(UTC)
 
@@ -261,4 +377,225 @@ async def persist_article_identity(
         wikidata_item_id=wikidata_item_id,
         static_build_id=static_build_id,
         api_query_id=api_query_id,
+    )
+
+
+async def persist_article_parse(
+    target: StaticTargetRecord,
+    parsed: ArticleParsePayload,
+) -> ArticleParsePersistenceResult:
+    article_id = article_id_for(target)
+    static_build_id = static_build_id_for(target)
+    api_query_id = f"api_query:{uuid4()}"
+    now = datetime.now(UTC)
+    source_query_kind = "api_queries"
+
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+
+        async with conn.transaction():
+            await conn.execute(
+                """
+                INSERT INTO api_queries (
+                    id, static_build_id, source_type, request_url, http_status,
+                    response_json, fetched_at, status
+                )
+                VALUES ($1, $2, 'w_article_parse', $3, 200, $4::jsonb, $5, 'success')
+                """,
+                api_query_id,
+                static_build_id,
+                parsed.request_url,
+                json.dumps(parsed.raw_json),
+                now,
+            )
+
+            await conn.execute(
+                """
+                UPDATE w_articles
+                SET latest_revid = $1, updated_at = $2
+                WHERE id = $3
+                """,
+                parsed.revid,
+                now,
+                article_id,
+            )
+
+            await conn.execute(
+                "DELETE FROM w_article_links WHERE target_id = $1 AND article_id = $2",
+                target.target_id,
+                article_id,
+            )
+            await conn.execute(
+                "DELETE FROM w_article_sections WHERE target_id = $1 AND article_id = $2",
+                target.target_id,
+                article_id,
+            )
+            await conn.execute(
+                "DELETE FROM w_article_categories WHERE target_id = $1 AND article_id = $2",
+                target.target_id,
+                article_id,
+            )
+            await conn.execute(
+                "DELETE FROM w_article_templates WHERE target_id = $1 AND article_id = $2",
+                target.target_id,
+                article_id,
+            )
+
+            for index, section in enumerate(parsed.sections):
+                section_index = str(section.get("index") or index)
+                section_title = str(section.get("line") or section.get("anchor") or "")
+                level = section.get("level")
+                await conn.execute(
+                    """
+                    INSERT INTO w_article_sections (
+                        id, target_id, article_id, source_query_id, source_query_kind,
+                        section_index, section_title, level, anchor, created_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    ON CONFLICT (target_id, article_id, section_index) DO UPDATE SET
+                        source_query_id = EXCLUDED.source_query_id,
+                        source_query_kind = EXCLUDED.source_query_kind,
+                        section_title = EXCLUDED.section_title,
+                        level = EXCLUDED.level,
+                        anchor = EXCLUDED.anchor
+                    """,
+                    f"w_article_section:{target.target_id}:{section_index}",
+                    target.target_id,
+                    article_id,
+                    api_query_id,
+                    source_query_kind,
+                    section_index,
+                    section_title,
+                    int(level) if level is not None else None,
+                    section.get("anchor"),
+                    now,
+                )
+
+            link_count = 0
+            for index, link in enumerate(parsed.links):
+                title = link_title(link)
+                if not title:
+                    continue
+
+                namespace = int(link.get("ns", 0) or 0)
+                linked_url = linked_wikipedia_url(target, title) if namespace == 0 else None
+                await conn.execute(
+                    """
+                    INSERT INTO w_article_links (
+                        id, target_id, article_id, source_query_id, source_query_kind,
+                        linked_lang, linked_title, linked_url, created_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    """,
+                    stable_row_id("w_article_link", target.target_id, api_query_id, index, title),
+                    target.target_id,
+                    article_id,
+                    api_query_id,
+                    source_query_kind,
+                    target.lang if namespace == 0 else None,
+                    title,
+                    linked_url,
+                    now,
+                )
+                link_count += 1
+
+            category_count = 0
+            for category in parsed.categories:
+                title = category_title(category)
+                if not title:
+                    continue
+
+                await conn.execute(
+                    """
+                    INSERT INTO w_article_categories (
+                        id, target_id, article_id, source_query_id, source_query_kind,
+                        category_title, sort_key, hidden, created_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    ON CONFLICT (target_id, article_id, category_title) DO UPDATE SET
+                        source_query_id = EXCLUDED.source_query_id,
+                        source_query_kind = EXCLUDED.source_query_kind,
+                        sort_key = EXCLUDED.sort_key,
+                        hidden = EXCLUDED.hidden
+                    """,
+                    stable_row_id("w_article_category", target.target_id, title),
+                    target.target_id,
+                    article_id,
+                    api_query_id,
+                    source_query_kind,
+                    title,
+                    category.get("sortkey") or category.get("sort"),
+                    bool(category.get("hidden")) if "hidden" in category else None,
+                    now,
+                )
+                category_count += 1
+
+            template_count = 0
+            for template in parsed.templates:
+                title = template_title(template)
+                if not title:
+                    continue
+
+                await conn.execute(
+                    """
+                    INSERT INTO w_article_templates (
+                        id, target_id, article_id, source_query_id, source_query_kind,
+                        template_title, template_namespace, created_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    ON CONFLICT (target_id, article_id, template_title) DO UPDATE SET
+                        source_query_id = EXCLUDED.source_query_id,
+                        source_query_kind = EXCLUDED.source_query_kind,
+                        template_namespace = EXCLUDED.template_namespace
+                    """,
+                    stable_row_id("w_article_template", target.target_id, title),
+                    target.target_id,
+                    article_id,
+                    api_query_id,
+                    source_query_kind,
+                    title,
+                    int(template["ns"]) if template.get("ns") is not None else None,
+                    now,
+                )
+                template_count += 1
+
+            external_source_count = 0
+            for url in parsed.external_links:
+                canonical_url = normalized_external_url(url)
+                if not canonical_url:
+                    continue
+
+                domain = urlparse(canonical_url).netloc.lower() or None
+                await conn.execute(
+                    """
+                    INSERT INTO target_sources (
+                        id, target_id, url, canonical_url, domain, updated_at
+                    )
+                    VALUES ($1, $2, $3, $3, $4, $5)
+                    ON CONFLICT (target_id, canonical_url) DO UPDATE SET
+                        url = EXCLUDED.url,
+                        domain = EXCLUDED.domain,
+                        updated_at = EXCLUDED.updated_at
+                    """,
+                    stable_row_id("target_source", target.target_id, canonical_url),
+                    target.target_id,
+                    canonical_url,
+                    domain,
+                    now,
+                )
+                external_source_count += 1
+    finally:
+        await conn.close()
+
+    return ArticleParsePersistenceResult(
+        article_id=article_id,
+        static_build_id=static_build_id,
+        api_query_id=api_query_id,
+        sections_count=len(parsed.sections),
+        links_count=link_count,
+        categories_count=category_count,
+        templates_count=template_count,
+        external_sources_count=external_source_count,
+        latest_revid=parsed.revid,
     )

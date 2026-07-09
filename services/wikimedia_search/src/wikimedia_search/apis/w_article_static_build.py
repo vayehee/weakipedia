@@ -6,13 +6,17 @@ from typing import Awaitable, Callable, Literal
 
 import httpx
 
-from wikimedia_search.db import DatabaseNotConfiguredError, persist_article_identity
 from wikimedia_search.apis.w_article_editors import summarize_article_editors
 from wikimedia_search.apis.w_article_pageviews import fetch_article_pageviews
 from wikimedia_search.apis.w_article_parse import fetch_article_parse
 from wikimedia_search.apis.w_article_revisions import fetch_article_revisions
 from wikimedia_search.apis.w_article_traffic import fetch_article_traffic
 from wikimedia_search.apis.wdata_item import fetch_wikidata_entity
+from wikimedia_search.db import (
+    DatabaseNotConfiguredError,
+    persist_article_identity,
+    persist_article_parse,
+)
 from wikimedia_search.resolver import WIKIMEDIA_USER_AGENT
 from wikimedia_search.static_targets import StaticTargetRecord
 
@@ -87,18 +91,25 @@ async def run_article_parse(target: StaticTargetRecord, client: httpx.AsyncClien
         title_slug=target.title_slug,
         client=client,
     )
-    raise stuck_after_fetch(
-        fetched=(
-            "MediaWiki parse payload "
-            f"revid={parsed.revid or 'unknown'}, sections={len(parsed.sections)}, "
-            f"categories={len(parsed.categories)}, links={len(parsed.links)}, "
-            f"external_links={len(parsed.external_links)}, templates={len(parsed.templates)}, "
-            f"images={len(parsed.images)}, html_bytes={len(parsed.text_html.encode('utf-8'))}"
-        ),
-        stuck_at="normalization and persistence",
-        next_fix=(
-            "map parse JSON into w_article_sections, w_article_links, target_sources, "
-            "w_article_claims_sources, and citation extraction from article markup"
+
+    try:
+        persistence = await persist_article_parse(target, parsed)
+    except DatabaseNotConfiguredError as error:
+        raise StaticBuildStepError(str(error)) from error
+    except Exception as error:
+        raise StaticBuildStepError(f"Database persistence failed during article parse: {error}.") from error
+
+    return StaticBuildStepResult(
+        step_id="article_parse",
+        status="success",
+        message=(
+            "Stored MediaWiki parse payload "
+            f"revid={persistence.latest_revid or 'unknown'}, "
+            f"sections={persistence.sections_count}, categories={persistence.categories_count}, "
+            f"links={persistence.links_count}, external_sources={persistence.external_sources_count}, "
+            f"templates={persistence.templates_count}, images={len(parsed.images)}, "
+            f"html_bytes={len(parsed.text_html.encode('utf-8'))}, "
+            f"api_query_id={persistence.api_query_id}."
         ),
     )
 
