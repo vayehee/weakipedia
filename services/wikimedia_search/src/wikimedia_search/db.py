@@ -1542,14 +1542,14 @@ async def persist_source_browser_result(
                 title, description, published_at, accessed_at, author, publisher,
                 publication_name, language, raw_metadata_json, fetched_text, fetched_text_at,
                 fetched_text_status, fetched_text_error, final_url, content_type, http_status,
-                extraction_method, updated_at
+                extraction_method, archive_url, updated_at
             )
             VALUES (
                 $1, $2, $3, $4, $5, $5,
                 $6, $7, $8, $9, $10, $11,
                 $12, $13, $14::jsonb, $15, $16,
                 $17, $18, $19, $20, $21,
-                $22, $9
+                $22, $23, $9
             )
             ON CONFLICT (canonical_url) DO UPDATE SET
                 original_url = COALESCE(target_sources.original_url, EXCLUDED.original_url),
@@ -1579,6 +1579,7 @@ async def persist_source_browser_result(
                 content_type = EXCLUDED.content_type,
                 http_status = EXCLUDED.http_status,
                 extraction_method = EXCLUDED.extraction_method,
+                archive_url = COALESCE(EXCLUDED.archive_url, target_sources.archive_url),
                 updated_at = EXCLUDED.updated_at
             """,
             stable_row_id("target_source", canonical_url),
@@ -1603,6 +1604,7 @@ async def persist_source_browser_result(
             result.content_type,
             result.http_status,
             result.extraction_method,
+            result.archive_url,
         )
     finally:
         await conn.close()

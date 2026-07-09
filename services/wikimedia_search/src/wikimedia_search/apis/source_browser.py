@@ -8,7 +8,14 @@ from urllib.parse import urlparse
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
-SourceFetchStatus = Literal["success", "blocked", "no_article_text", "error"]
+SourceFetchStatus = Literal[
+    "success",
+    "blocked",
+    "no_article_text",
+    "archive_requested",
+    "archive_not_found",
+    "error",
+]
 
 
 @dataclass(frozen=True)
@@ -42,6 +49,7 @@ class SourceBrowserResult:
     fetched_text_at: datetime
     extraction_method: str
     raw_metadata: dict[str, Any]
+    archive_url: str | None = None
 
 
 def clean_text(value: str | None) -> str | None:
