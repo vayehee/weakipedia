@@ -31,6 +31,25 @@ ARCHIVE_TODAY_HOSTS = {
 
 DEFAULT_ARCHIVE_HOST = "archive.ph"
 MIN_FULL_TEXT_LENGTH = 800
+GATED_TEXT_MARKERS = (
+    "already a subscriber",
+    "become a subscriber",
+    "continue reading",
+    "create a free account",
+    "create an account to continue",
+    "log in to continue",
+    "register for free to continue",
+    "sign in to continue",
+    "subscribe for full access",
+    "subscribe now to continue",
+    "subscribe to continue",
+    "subscribe to keep reading",
+    "subscription required",
+    "this article is for subscribers",
+    "to continue reading",
+    "unlock this article",
+    "you have reached your limit",
+)
 
 
 @dataclass(frozen=True)
@@ -84,14 +103,41 @@ def is_blocked_text(text: str, status: int | None) -> bool:
     return any(marker in lower for marker in markers)
 
 
+def is_gated_article_text(text: str) -> bool:
+    lower = " ".join(text.lower().split())
+    return any(marker in lower for marker in GATED_TEXT_MARKERS)
+
+
 def selected_raw_text_status(text: str, status: int | None) -> SourceFetchStatus:
     if is_blocked_text(text, status):
         return "blocked"
+
+    if is_gated_article_text(text):
+        return "no_article_text"
 
     if len(text) < MIN_FULL_TEXT_LENGTH:
         return "no_article_text"
 
     return "success"
+
+
+def text_status_error(status: SourceFetchStatus, text: str, http_status: int | None) -> str | None:
+    if status == "success":
+        return None
+
+    if status == "blocked":
+        return f"Source access blocked; http_status={http_status}."
+
+    if status == "no_article_text" and is_gated_article_text(text):
+        return "Source exposed a gated/snippet view rather than full article text."
+
+    if status == "no_article_text":
+        return (
+            "Source did not expose enough full text after selecting the page contents; "
+            f"text_length={len(text)}."
+        )
+
+    return f"Source text extraction ended with status={status}."
 
 
 async def new_context(browser: Browser, visitor_context: VisitorBrowserContext | None) -> BrowserContext:
@@ -254,12 +300,19 @@ async def fetch_target_source_archive_full_text(
                         raw_metadata={"access_path": "direct"},
                     )
                 )
+            direct_error = text_status_error(
+                direct_status,
+                text,
+                response.status if response else None,
+            )
         except PlaywrightTimeoutError:
             direct_status = "error"
+            direct_error = "Timed out while loading the direct source URL."
         except Exception:
             direct_status = "error"
+            direct_error = "Direct source URL failed before full text could be extracted."
 
-        last_error = f"Direct source access ended with status={direct_status}."
+        last_error = direct_error or f"Direct source access ended with status={direct_status}."
         archive_requested_url: str | None = None
 
         for archive_host in archive_hosts:
@@ -298,9 +351,38 @@ async def fetch_target_source_archive_full_text(
                             )
                         )
 
+                    if (
+                        snapshot_status == "no_article_text"
+                        and is_gated_article_text(snapshot_text)
+                    ):
+                        await browser.close()
+                        return ArchiveAttemptResult(
+                            source_result=make_source_result(
+                                requested_url=article_url,
+                                final_url=page.url,
+                                response=snapshot_response,
+                                title=snapshot_title,
+                                text=None,
+                                status="no_article_text",
+                                error=(
+                                    "Archive snapshot exposed a gated/snippet view rather "
+                                    "than full article text."
+                                ),
+                                extraction_method="archive_today_snapshot_gated",
+                                raw_metadata={
+                                    "access_path": "archive_today_snapshot",
+                                    "archive_lookup_url": lookup,
+                                    "archive_host": archive_host,
+                                    "archive_snapshot_text_length": len(snapshot_text),
+                                },
+                                archive_url=snapshot_url,
+                            )
+                        )
+
                     last_error = (
                         f"Archive snapshot {snapshot_url} did not expose article text; "
-                        f"status={snapshot_status}."
+                        f"status={snapshot_status}; "
+                        f"reason={text_status_error(snapshot_status, snapshot_text, snapshot_response.status if snapshot_response else None)}"
                     )
                     continue
 
