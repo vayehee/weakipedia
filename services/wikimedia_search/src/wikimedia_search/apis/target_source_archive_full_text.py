@@ -50,6 +50,14 @@ GATED_TEXT_MARKERS = (
     "unlock this article",
     "you have reached your limit",
 )
+ARCHIVE_SNAPSHOT_GATED_MARKERS = (
+    "please enable js and disable any ad blocker",
+    "please enable javascript and disable any ad blocker",
+)
+TEASER_ARCHIVE_HOSTS = (
+    "bloomberg.com",
+    "wsj.com",
+)
 
 
 @dataclass(frozen=True)
@@ -108,11 +116,42 @@ def is_gated_article_text(text: str) -> bool:
     return any(marker in lower for marker in GATED_TEXT_MARKERS)
 
 
-def selected_raw_text_status(text: str, status: int | None) -> SourceFetchStatus:
+def archive_snapshot_source_host(text: str) -> str | None:
+    for line in text.splitlines():
+        normalized = " ".join(line.lower().split())
+        if normalized.startswith("all snapshots from host "):
+            return normalized.removeprefix("all snapshots from host ").strip()
+
+    return None
+
+
+def is_gated_archive_snapshot_text(text: str) -> bool:
+    lower = " ".join(text.lower().split())
+    if any(marker in lower for marker in ARCHIVE_SNAPSHOT_GATED_MARKERS):
+        return True
+
+    host = archive_snapshot_source_host(text)
+    if not host or not any(host.endswith(domain) for domain in TEASER_ARCHIVE_HOSTS):
+        return False
+
+    visible_lines = [line.strip() for line in text.splitlines() if line.strip()]
+    has_subscribe_chrome = any(line.lower() == "subscribe" for line in visible_lines)
+    has_archive_chrome = "archive.today webpage capture" in lower
+    return has_archive_chrome and has_subscribe_chrome and len(text) < 3000
+
+
+def selected_raw_text_status(
+    text: str,
+    status: int | None,
+    *,
+    archive_snapshot: bool = False,
+) -> SourceFetchStatus:
     if is_blocked_text(text, status):
         return "blocked"
 
-    if is_gated_article_text(text):
+    if is_gated_article_text(text) or (
+        archive_snapshot and is_gated_archive_snapshot_text(text)
+    ):
         return "no_article_text"
 
     if len(text) < MIN_FULL_TEXT_LENGTH:
@@ -121,15 +160,30 @@ def selected_raw_text_status(text: str, status: int | None) -> SourceFetchStatus
     return "success"
 
 
-def text_status_error(status: SourceFetchStatus, text: str, http_status: int | None) -> str | None:
+def text_status_error(
+    status: SourceFetchStatus,
+    text: str,
+    http_status: int | None,
+    *,
+    archive_snapshot: bool = False,
+) -> str | None:
     if status == "success":
         return None
 
     if status == "blocked":
         return f"Source access blocked; http_status={http_status}."
 
-    if status == "no_article_text" and is_gated_article_text(text):
+    if status == "no_article_text" and (
+        is_gated_article_text(text)
+        or (archive_snapshot and is_gated_archive_snapshot_text(text))
+    ):
         return "Source exposed a gated/snippet view rather than full article text."
+
+    if status == "no_article_text" and archive_snapshot:
+        return (
+            "Archive snapshot did not expose full article text; "
+            f"text_length={len(text)}."
+        )
 
     if status == "no_article_text":
         return (
@@ -284,7 +338,12 @@ async def fetch_target_source_archive_full_text(
 
         try:
             response, title, text = await read_page(page, article_url, timeout_ms)
-            direct_status = selected_raw_text_status(text, response.status if response else None)
+            direct_is_archive_snapshot = is_probable_archive_snapshot_url(page.url)
+            direct_status = selected_raw_text_status(
+                text,
+                response.status if response else None,
+                archive_snapshot=direct_is_archive_snapshot,
+            )
             if direct_status == "success":
                 await browser.close()
                 return ArchiveAttemptResult(
@@ -298,13 +357,35 @@ async def fetch_target_source_archive_full_text(
                         error=None,
                         extraction_method="playwright_select_all_direct",
                         raw_metadata={"access_path": "direct"},
+                        archive_url=page.url if direct_is_archive_snapshot else None,
                     )
                 )
             direct_error = text_status_error(
                 direct_status,
                 text,
                 response.status if response else None,
+                archive_snapshot=direct_is_archive_snapshot,
             )
+            if direct_is_archive_snapshot:
+                await browser.close()
+                return ArchiveAttemptResult(
+                    source_result=make_source_result(
+                        requested_url=article_url,
+                        final_url=page.url,
+                        response=response,
+                        title=title,
+                        text=None,
+                        status=direct_status,
+                        error=direct_error,
+                        extraction_method="archive_today_snapshot_direct_gated",
+                        raw_metadata={
+                            "access_path": "direct_archive_snapshot",
+                            "archive_snapshot_text_length": len(text),
+                            "archive_snapshot_host": archive_snapshot_source_host(text),
+                        },
+                        archive_url=page.url,
+                    )
+                )
         except PlaywrightTimeoutError:
             direct_status = "error"
             direct_error = "Timed out while loading the direct source URL."
@@ -329,6 +410,7 @@ async def fetch_target_source_archive_full_text(
                     snapshot_status = selected_raw_text_status(
                         snapshot_text,
                         snapshot_response.status if snapshot_response else None,
+                        archive_snapshot=True,
                     )
                     if snapshot_status == "success":
                         await browser.close()
@@ -351,9 +433,9 @@ async def fetch_target_source_archive_full_text(
                             )
                         )
 
-                    if (
-                        snapshot_status == "no_article_text"
-                        and is_gated_article_text(snapshot_text)
+                    if snapshot_status == "no_article_text" and (
+                        is_gated_article_text(snapshot_text)
+                        or is_gated_archive_snapshot_text(snapshot_text)
                     ):
                         await browser.close()
                         return ArchiveAttemptResult(
@@ -374,6 +456,7 @@ async def fetch_target_source_archive_full_text(
                                     "archive_lookup_url": lookup,
                                     "archive_host": archive_host,
                                     "archive_snapshot_text_length": len(snapshot_text),
+                                    "archive_snapshot_host": archive_snapshot_source_host(snapshot_text),
                                 },
                                 archive_url=snapshot_url,
                             )
@@ -382,7 +465,7 @@ async def fetch_target_source_archive_full_text(
                     last_error = (
                         f"Archive snapshot {snapshot_url} did not expose article text; "
                         f"status={snapshot_status}; "
-                        f"reason={text_status_error(snapshot_status, snapshot_text, snapshot_response.status if snapshot_response else None)}"
+                        f"reason={text_status_error(snapshot_status, snapshot_text, snapshot_response.status if snapshot_response else None, archive_snapshot=True)}"
                     )
                     continue
 
