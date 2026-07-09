@@ -465,7 +465,7 @@ function App() {
     setSuggestions([]);
     setValidation({ status: "valid", message: "" });
     setArticleUrl(suggestion.url);
-    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    window.setTimeout(() => searchInputRef.current?.focus(), 0);
   }
 
   function selectCreateSuggestion() {
@@ -477,7 +477,7 @@ function App() {
     setSuggestions([]);
     setValidation({ status: "valid", message: "" });
     setArticleUrl(createValue);
-    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    window.setTimeout(() => searchInputRef.current?.focus(), 0);
   }
 
   async function submitSearch() {
@@ -678,6 +678,7 @@ function App() {
                   className="suggestion-option"
                   key={suggestion.url}
                   type="button"
+                  onMouseDown={(event) => event.preventDefault()}
                   onKeyDown={blockKeyboardTraySelection}
                   onKeyUp={blockKeyboardTraySelection}
                   onClick={() => selectSuggestion(suggestion)}
@@ -699,6 +700,7 @@ function App() {
                 <button
                   className="suggestion-option suggestion-create-option"
                   type="button"
+                  onMouseDown={(event) => event.preventDefault()}
                   onKeyDown={blockKeyboardTraySelection}
                   onKeyUp={blockKeyboardTraySelection}
                   onClick={selectCreateSuggestion}
