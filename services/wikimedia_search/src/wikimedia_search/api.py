@@ -1,12 +1,15 @@
 import os
 
+import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from .apis.w_article_static_build import StaticBuildStepError, run_static_build_step
 from .apis.w_article_metadata import ArticleMetadataError
 from .models import (
     ArticleMetadataResponse,
     ResolveResponse,
+    StaticBuildStepRunResponse,
     StaticTargetCreateRequest,
     StaticTargetResponse,
 )
@@ -94,3 +97,48 @@ async def read_static_target(target_id: str) -> StaticTargetResponse:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
     return static_target_response(target)
+
+
+@app.post(
+    "/static-targets/{target_id}/build-steps/{step_id}",
+    response_model=StaticBuildStepRunResponse,
+)
+async def run_static_target_build_step(
+    target_id: str,
+    step_id: str,
+) -> StaticBuildStepRunResponse:
+    try:
+        target = get_static_target(target_id)
+        result = await run_static_build_step(target, step_id)
+    except StaticTargetNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except StaticBuildStepError as error:
+        return StaticBuildStepRunResponse(
+            stepId=step_id,
+            status="error",
+            message=str(error),
+        )
+    except httpx.HTTPStatusError as error:
+        return StaticBuildStepRunResponse(
+            stepId=step_id,
+            status="error",
+            message=f"External API returned HTTP {error.response.status_code}.",
+        )
+    except httpx.HTTPError as error:
+        return StaticBuildStepRunResponse(
+            stepId=step_id,
+            status="error",
+            message=f"External API request failed: {error}.",
+        )
+    except ValueError as error:
+        return StaticBuildStepRunResponse(
+            stepId=step_id,
+            status="error",
+            message=f"API response could not be parsed: {error}.",
+        )
+
+    return StaticBuildStepRunResponse(
+        stepId=result.step_id,
+        status=result.status,
+        message=result.message,
+    )

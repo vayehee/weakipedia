@@ -58,6 +58,12 @@ type StaticTargetResponse = {
   titleSlug: string;
 };
 
+type StaticBuildStepRunResponse = {
+  message: string;
+  status: "success" | "error";
+  stepId: string;
+};
+
 type ThemeMode = "light" | "dark";
 
 const DASHBOARD_TABS = [
@@ -80,29 +86,86 @@ type StaticDashboardRoute = {
 type StaticBuildStepStatus = "pending" | "active" | "success" | "error";
 
 type StaticBuildStep = {
+  id: string;
   label: string;
   status: StaticBuildStepStatus;
   error?: string;
 };
 
-const STATIC_BUILD_STEP_LABELS = [
-  "Resolving Wikipedia article identity, namespace, redirects, and Wikidata entities...",
-  "Processing article structure, sections, links, categories, templates, and citations...",
-  "Retrieving revision history and recent edit records...",
-  "Attributing current article revision text to contributing editors...",
-  "Measuring human readership over time...",
-  "Measuring mobile web readership over time...",
-  "Measuring mobile app readership over time...",
-  "Measuring crawler and spider access patterns...",
-  "Measuring machine access patterns...",
-  "Mapping incoming traffic pathways to the article...",
-  "Mapping outgoing traffic pathways from the article...",
-  "Summarizing editor activity and article stewardship signals...",
-  "Processing article claims, arguments, and statements...",
-  "Mapping claims to citations and external source material...",
-  "Processing associated Wikidata entity labels, descriptions, sitelinks, and claims...",
-  "Retrieving broader interest patterns around the article subject...",
-  "Retrieving recent publications around the article subject...",
+type StaticBuildStepDefinition = {
+  id: string;
+  label: string;
+};
+
+const STATIC_BUILD_STEPS = [
+  {
+    id: "article_identity",
+    label: "Resolving Wikipedia article identity, namespace, redirects, and Wikidata entities...",
+  },
+  {
+    id: "article_parse",
+    label: "Processing article structure, sections, links, categories, templates, and citations...",
+  },
+  {
+    id: "article_revisions",
+    label: "Retrieving revision history and recent edit records...",
+  },
+  {
+    id: "article_authorship",
+    label: "Attributing current article revision text to contributing editors...",
+  },
+  {
+    id: "pageviews_human",
+    label: "Measuring human readership over time...",
+  },
+  {
+    id: "pageviews_mobile_web",
+    label: "Measuring mobile web readership over time...",
+  },
+  {
+    id: "pageviews_mobile_app",
+    label: "Measuring mobile app readership over time...",
+  },
+  {
+    id: "pageviews_spider",
+    label: "Measuring crawler and spider access patterns...",
+  },
+  {
+    id: "pageviews_automated",
+    label: "Measuring machine access patterns...",
+  },
+  {
+    id: "traffic_incoming",
+    label: "Mapping incoming traffic pathways to the article...",
+  },
+  {
+    id: "traffic_outgoing",
+    label: "Mapping outgoing traffic pathways from the article...",
+  },
+  {
+    id: "editor_summary",
+    label: "Summarizing editor activity and article stewardship signals...",
+  },
+  {
+    id: "article_claims",
+    label: "Processing article claims, arguments, and statements...",
+  },
+  {
+    id: "claim_sources",
+    label: "Mapping claims to citations and external source material...",
+  },
+  {
+    id: "wikidata_entity",
+    label: "Processing associated Wikidata entity labels, descriptions, sitelinks, and claims...",
+  },
+  {
+    id: "google_trends",
+    label: "Retrieving broader interest patterns around the article subject...",
+  },
+  {
+    id: "google_news",
+    label: "Retrieving recent publications around the article subject...",
+  },
 ] as const;
 
 function getInitialThemeMode(): ThemeMode {
@@ -169,6 +232,28 @@ async function readStaticTarget(targetId: string, signal: AbortSignal) {
   return (await response.json()) as StaticTargetResponse;
 }
 
+async function runStaticTargetBuildStep(
+  targetId: string,
+  stepId: string,
+  signal: AbortSignal,
+) {
+  const api = new URL(
+    `/static-targets/${encodeURIComponent(targetId)}/build-steps/${encodeURIComponent(stepId)}`,
+    WIKIMEDIA_SEARCH_API_URL,
+  );
+  const response = await fetch(api, {
+    method: "POST",
+    signal,
+  });
+
+  if (!response.ok) {
+    const error = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(error?.detail ?? "Unable to run this static build step.");
+  }
+
+  return (await response.json()) as StaticBuildStepRunResponse;
+}
+
 function wikipediaCreateSlug(value: string) {
   return value.trim().replace(/\s+/g, "_");
 }
@@ -221,6 +306,14 @@ function getTargetTitle(targetId: string) {
 
 function getTargetFetchDate() {
   return "July 8, 2026";
+}
+
+function createStaticBuildSteps(): StaticBuildStep[] {
+  return STATIC_BUILD_STEPS.map((step: StaticBuildStepDefinition) => ({
+    id: step.id,
+    label: step.label,
+    status: "pending",
+  }));
 }
 
 function getStaticDashboardRoute(location: Location): StaticDashboardRoute | null {
@@ -670,23 +763,14 @@ function StaticDashboardPage({
   const [dashboardSearch, setDashboardSearch] = useState("");
   const [staticTarget, setStaticTarget] = useState<StaticTargetResponse | null>(null);
   const [staticTargetLookupFailed, setStaticTargetLookupFailed] = useState(false);
+  const [staticBuildSteps, setStaticBuildSteps] = useState<StaticBuildStep[]>(createStaticBuildSteps);
   const targetTitle = staticTarget?.canonicalTitle ?? getTargetTitle(targetId);
   const targetFetchDate = getTargetFetchDate();
   const dashboardViewLabel = getDashboardViewLabel(activeView);
-  const [activeBuildStepIndex, setActiveBuildStepIndex] = useState(0);
-  const isStaticBuildComplete = activeBuildStepIndex >= STATIC_BUILD_STEP_LABELS.length;
-
-  const staticBuildSteps: StaticBuildStep[] = STATIC_BUILD_STEP_LABELS.map((label, index) => {
-    if (index < activeBuildStepIndex) {
-      return { label, status: "success" };
-    }
-
-    if (index === activeBuildStepIndex) {
-      return { label, status: "active" };
-    }
-
-    return { label, status: "pending" };
-  });
+  const isStaticBuildComplete = staticBuildSteps.every(
+    (step) => step.status === "success" || step.status === "error",
+  );
+  const hasStaticBuildErrors = staticBuildSteps.some((step) => step.status === "error");
 
   useEffect(() => {
     if (targetId.toLocaleLowerCase() === "test") {
@@ -716,18 +800,88 @@ function StaticDashboardPage({
   }, [targetId]);
 
   useEffect(() => {
-    if (isStaticBuildComplete) {
+    if (!staticTargetLookupFailed) {
       return;
     }
 
-    const timeout = window.setTimeout(() => {
-      setActiveBuildStepIndex((currentStep) =>
-        Math.min(currentStep + 1, STATIC_BUILD_STEP_LABELS.length),
-      );
-    }, 850);
+    setStaticBuildSteps((currentSteps) =>
+      currentSteps.map((step, index) =>
+        index === 0
+          ? {
+              ...step,
+              status: "error",
+              error: "Static target metadata could not be loaded from the backend.",
+            }
+          : step,
+      ),
+    );
+  }, [staticTargetLookupFailed]);
 
-    return () => window.clearTimeout(timeout);
-  }, [activeBuildStepIndex, isStaticBuildComplete]);
+  useEffect(() => {
+    setStaticBuildSteps(createStaticBuildSteps());
+
+    if (!staticTarget) {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function runBuildSteps() {
+      for (const step of STATIC_BUILD_STEPS) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setStaticBuildSteps((currentSteps) =>
+          currentSteps.map((currentStep) =>
+            currentStep.id === step.id
+              ? { ...currentStep, status: "active", error: undefined }
+              : currentStep,
+          ),
+        );
+
+        try {
+          const result = await runStaticTargetBuildStep(targetId, step.id, controller.signal);
+
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          setStaticBuildSteps((currentSteps) =>
+            currentSteps.map((currentStep) =>
+              currentStep.id === step.id
+                ? {
+                    ...currentStep,
+                    status: result.status,
+                    error: result.status === "error" ? result.message : undefined,
+                  }
+                : currentStep,
+            ),
+          );
+        } catch (error) {
+          if ((error as Error).name === "AbortError" || controller.signal.aborted) {
+            return;
+          }
+
+          setStaticBuildSteps((currentSteps) =>
+            currentSteps.map((currentStep) =>
+              currentStep.id === step.id
+                ? {
+                    ...currentStep,
+                    status: "error",
+                    error: (error as Error).message,
+                  }
+                : currentStep,
+            ),
+          );
+        }
+      }
+    }
+
+    void runBuildSteps();
+
+    return () => controller.abort();
+  }, [staticTarget, targetId]);
 
   function requestRefresh() {
     window.alert("Login / Sign up is required to refresh this dashboard.");
@@ -825,7 +979,7 @@ function StaticDashboardPage({
           </p>
         </section>
 
-        {isStaticBuildComplete ? (
+        {isStaticBuildComplete && !hasStaticBuildErrors ? (
           <section className="dashboard-grid" aria-label="Static dashboard sections">
             <DashboardPanel title="Overview" body="Resolved identity, canonical title, and build date." />
             <DashboardPanel title="Article" body="Parsed sections, links, categories, and current text." />

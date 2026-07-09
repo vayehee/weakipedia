@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 ProjectKind = Literal["wikipedia", "wikidata"]
 ValidationStatus = Literal["idle", "checking", "invalid", "valid"]
+StaticBuildStepStatus = Literal["success", "error"]
 
 
 class Suggestion(BaseModel):
@@ -48,3 +49,9 @@ class StaticTargetResponse(BaseModel):
     canonicalUrl: str
     route: str
     articleMetadata: ArticleMetadataResponse
+
+
+class StaticBuildStepRunResponse(BaseModel):
+    stepId: str
+    status: StaticBuildStepStatus
+    message: str
