@@ -355,10 +355,18 @@ async def ensure_schema(conn: asyncpg.Connection) -> None:
             mobile_app_views INTEGER,
             spider_views INTEGER,
             automated_views INTEGER,
+            human_views INTEGER,
+            machine_access INTEGER,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             UNIQUE(target_id, article_id, date)
         );
+
+        ALTER TABLE w_article_views
+            ADD COLUMN IF NOT EXISTS human_views INTEGER;
+
+        ALTER TABLE w_article_views
+            ADD COLUMN IF NOT EXISTS machine_access INTEGER;
 
         CREATE TABLE IF NOT EXISTS wdata_item_labels (
             id TEXT PRIMARY KEY,
@@ -566,6 +574,10 @@ def pageview_column(stream_id: str) -> str:
         "crawlers": "spider_views",
         "machines": "automated_views",
     }[stream_id]
+
+
+def summed_pageview_values(values: dict[str, int | None], keys: tuple[str, ...]) -> int:
+    return sum(int(values.get(key) or 0) for key in keys)
 
 
 def cache_result_from_row(
@@ -1718,14 +1730,23 @@ async def persist_article_pageviews(
                     points_count += 1
 
             for item_date, values in values_by_date.items():
+                human_views = summed_pageview_values(
+                    values,
+                    ("desktop_views", "mobile_web_views", "mobile_app_views"),
+                )
+                machine_access = summed_pageview_values(
+                    values,
+                    ("spider_views", "automated_views"),
+                )
                 await conn.execute(
                     """
                     INSERT INTO w_article_views (
                         id, target_id, article_id, source_query_id, source_query_kind,
                         date, desktop_views, mobile_web_views, mobile_app_views,
-                        spider_views, automated_views, created_at, updated_at
+                        spider_views, automated_views, human_views, machine_access,
+                        created_at, updated_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8, $9, $10, $11, $12, $12)
+                    VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8, $9, $10, $11, $12, $13, $14, $14)
                     ON CONFLICT (target_id, article_id, date) DO UPDATE SET
                         source_query_id = EXCLUDED.source_query_id,
                         source_query_kind = EXCLUDED.source_query_kind,
@@ -1734,6 +1755,8 @@ async def persist_article_pageviews(
                         mobile_app_views = EXCLUDED.mobile_app_views,
                         spider_views = EXCLUDED.spider_views,
                         automated_views = EXCLUDED.automated_views,
+                        human_views = EXCLUDED.human_views,
+                        machine_access = EXCLUDED.machine_access,
                         updated_at = EXCLUDED.updated_at
                     """,
                     stable_row_id("w_article_view", target.target_id, article_id, item_date),
@@ -1747,6 +1770,8 @@ async def persist_article_pageviews(
                     values.get("mobile_app_views"),
                     values.get("spider_views"),
                     values.get("automated_views"),
+                    human_views,
+                    machine_access,
                     now,
                 )
     finally:
