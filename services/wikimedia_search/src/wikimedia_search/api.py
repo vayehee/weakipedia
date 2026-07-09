@@ -125,10 +125,14 @@ async def run_static_target_build_step(
             message=str(error),
         )
     except httpx.HTTPStatusError as error:
+        response_text = error.response.text[:300].replace("\n", " ")
         return StaticBuildStepRunResponse(
             stepId=step_id,
             status="error",
-            message=f"External API returned HTTP {error.response.status_code}.",
+            message=(
+                f"External API returned HTTP {error.response.status_code}; "
+                f"url={error.request.url}; response={response_text or '<empty>'}."
+            ),
         )
     except httpx.HTTPError as error:
         return StaticBuildStepRunResponse(

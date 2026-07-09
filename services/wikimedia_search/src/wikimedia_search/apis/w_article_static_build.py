@@ -35,6 +35,12 @@ class StaticBuildStepError(Exception):
     """Raised when a static target build step cannot complete."""
 
 
+def stuck_after_fetch(*, fetched: str, stuck_at: str, next_fix: str) -> StaticBuildStepError:
+    return StaticBuildStepError(
+        f"Fetched {fetched}; stuck at {stuck_at}. Next fix: {next_fix}."
+    )
+
+
 @dataclass(frozen=True)
 class StaticBuildStepResult:
     step_id: str
@@ -71,13 +77,13 @@ async def get_json(client: httpx.AsyncClient, url: str, *, params: dict | None =
 
 async def run_article_identity(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
     metadata = target.article_metadata
-    return StaticBuildStepResult(
-        step_id="article_identity",
-        status="success",
-        message=(
-            f"Resolved {metadata.canonical_title} as page {metadata.page_id}"
-            f" on {metadata.host}."
+    raise stuck_after_fetch(
+        fetched=(
+            f"MediaWiki identity for {metadata.canonical_title}: page_id={metadata.page_id}, "
+            f"namespace={metadata.namespace}, wikidata_qid={metadata.wikidata_qid or 'none'}"
         ),
+        stuck_at="database persistence",
+        next_fix="write or upsert targets, w_articles, and the w_articles-to-wdata_items link in Cloud SQL",
     )
 
 
@@ -97,11 +103,23 @@ async def run_article_parse(target: StaticTargetRecord, client: httpx.AsyncClien
     assert_mediawiki_response(data)
     parsed = data.get("parse", {})
     sections = len(parsed.get("sections", []))
+    categories = len(parsed.get("categories", []))
     links = len(parsed.get("links", []))
-    return StaticBuildStepResult(
-        step_id="article_parse",
-        status="success",
-        message=f"Parsed article structure with {sections} sections and {links} internal links.",
+    external_links = len(parsed.get("externallinks", []))
+    templates = len(parsed.get("templates", []))
+    images = len(parsed.get("images", []))
+    raise stuck_after_fetch(
+        fetched=(
+            "MediaWiki parse payload "
+            f"revid={parsed.get('revid', 'unknown')}, sections={sections}, "
+            f"categories={categories}, links={links}, external_links={external_links}, "
+            f"templates={templates}, images={images}"
+        ),
+        stuck_at="normalization and persistence",
+        next_fix=(
+            "map parse JSON into w_article_sections, w_article_links, target_sources, "
+            "w_article_claims_sources, and citation extraction from article markup"
+        ),
     )
 
 
@@ -123,10 +141,10 @@ async def run_article_revisions(target: StaticTargetRecord, client: httpx.AsyncC
     assert_mediawiki_response(data)
     pages = data.get("query", {}).get("pages", [])
     revisions = pages[0].get("revisions", []) if pages else []
-    return StaticBuildStepResult(
-        step_id="article_revisions",
-        status="success",
-        message=f"Retrieved {len(revisions)} recent edit records.",
+    raise stuck_after_fetch(
+        fetched=f"{len(revisions)} MediaWiki revision records with ids, timestamps, and editor names",
+        stuck_at="revision normalization and persistence",
+        next_fix="write w_article_revisions rows and resolve revision editor names into w_editors records",
     )
 
 
@@ -148,10 +166,13 @@ async def run_pageviews(
         ),
     )
     items = data.get("items", [])
-    return StaticBuildStepResult(
-        step_id=step_id,
-        status="success",
-        message=f"Retrieved {len(items)} daily pageview points.",
+    raise stuck_after_fetch(
+        fetched=(
+            f"{len(items)} pageview points for project={project}, access={access}, "
+            f"agent={agent}, range={start}-{end}"
+        ),
+        stuck_at="pageview normalization and persistence",
+        next_fix="write static article view rows into w_article_views with target_id, access, agent, date, and views",
     )
 
 
@@ -176,10 +197,13 @@ async def run_traffic(
     )
     results = data.get("results", [])
     month = data.get("month", "latest month")
-    return StaticBuildStepResult(
-        step_id=step_id,
-        status="success",
-        message=f"Retrieved {len(results)} {direction} records for {month}.",
+    raise stuck_after_fetch(
+        fetched=f"{len(results)} Wikinav {direction} records for month={month}",
+        stuck_at="traffic normalization and persistence",
+        next_fix=(
+            "write w_article_traffic rows preserving source fields month, title, and views; "
+            "derive direction, title_type, and optional url"
+        ),
     )
 
 
@@ -202,10 +226,10 @@ async def run_editor_summary(target: StaticTargetRecord, client: httpx.AsyncClie
     pages = data.get("query", {}).get("pages", [])
     revisions = pages[0].get("revisions", []) if pages else []
     editors = {revision.get("user") for revision in revisions if revision.get("user")}
-    return StaticBuildStepResult(
-        step_id="editor_summary",
-        status="success",
-        message=f"Summarized {len(revisions)} edits from {len(editors)} editors.",
+    raise stuck_after_fetch(
+        fetched=f"{len(revisions)} revision records containing {len(editors)} distinct editor names",
+        stuck_at="editor analysis persistence",
+        next_fix="write w_editors and w_article_editors summary rows, including edit counts and stewardship signals",
     )
 
 
@@ -213,10 +237,9 @@ async def run_wikidata_entity(target: StaticTargetRecord, client: httpx.AsyncCli
     qid = target.article_metadata.wikidata_qid
 
     if not qid:
-        return StaticBuildStepResult(
-            step_id="wikidata_entity",
-            status="success",
-            message="No associated Wikidata entity was declared by the Wikipedia page.",
+        raise StaticBuildStepError(
+            "Fetched article metadata; stuck at Wikidata lookup because this article declares no wikibase_item pageprop. "
+            "Next fix: record a nullable w_articles.wikidata_item_id state instead of treating absence as success."
         )
 
     data = await get_json(
@@ -234,10 +257,16 @@ async def run_wikidata_entity(target: StaticTargetRecord, client: httpx.AsyncCli
     assert_mediawiki_response(data)
     entity = data.get("entities", {}).get(qid, {})
     claims = len(entity.get("claims", {}))
-    return StaticBuildStepResult(
-        step_id="wikidata_entity",
-        status="success",
-        message=f"Retrieved Wikidata entity {qid} with {claims} claim groups.",
+    sitelinks = len(entity.get("sitelinks", {}))
+    labels = len(entity.get("labels", {}))
+    descriptions = len(entity.get("descriptions", {}))
+    raise stuck_after_fetch(
+        fetched=(
+            f"Wikidata entity {qid}: labels={labels}, descriptions={descriptions}, "
+            f"sitelinks={sitelinks}, claim_groups={claims}"
+        ),
+        stuck_at="Wikidata normalization and persistence",
+        next_fix="write wdata_items, link w_articles.wikidata_item_id, and persist selected labels, sitelinks, and claims",
     )
 
 
