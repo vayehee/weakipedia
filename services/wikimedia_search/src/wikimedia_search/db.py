@@ -560,11 +560,11 @@ def pageview_item_views(item: dict) -> int | None:
 
 def pageview_column(stream_id: str) -> str:
     return {
-        "human": "desktop_views",
-        "mobile_web": "mobile_web_views",
-        "mobile_app": "mobile_app_views",
-        "spider": "spider_views",
-        "automated": "automated_views",
+        "humans_desktop": "desktop_views",
+        "humans_mobile_web": "mobile_web_views",
+        "humans_mobile_app": "mobile_app_views",
+        "crawlers": "spider_views",
+        "machines": "automated_views",
     }[stream_id]
 
 
@@ -871,7 +871,12 @@ async def get_existing_article_traffic(
     return result if has_complete_no_data_state or has_any_month_capture else None
 
 
-async def get_existing_article_pageviews(target: StaticTargetRecord) -> StaticStepCacheResult | None:
+async def get_existing_article_pageviews(
+    target: StaticTargetRecord,
+    *,
+    start: str,
+    end: str,
+) -> StaticStepCacheResult | None:
     article_id = article_id_for(target)
     static_build_id = static_build_id_for(target)
 
@@ -904,11 +909,22 @@ async def get_existing_article_pageviews(target: StaticTargetRecord) -> StaticSt
     finally:
         await conn.close()
 
-    return cache_result_from_row(
+    result = cache_result_from_row(
         row,
         count_fields=("rows_count", "api_queries_count"),
         detail_fields=("start_date", "end_date"),
     )
+    if not result:
+        return None
+
+    expected_start = date(int(start[:4]), int(start[4:6]), int(start[6:8]))
+    expected_end = date(int(end[:4]), int(end[4:6]), int(end[6:8]))
+    start_date = result.details.get("start_date")
+    end_date = result.details.get("end_date")
+    if start_date and end_date and start_date <= expected_start and end_date >= expected_end:
+        return result
+
+    return None
 
 
 async def persist_article_identity(

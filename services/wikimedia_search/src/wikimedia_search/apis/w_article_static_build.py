@@ -72,10 +72,19 @@ def earliest_record_at(cache: StaticStepCacheResult) -> str:
     return cache.earliest_record_at.isoformat()
 
 
+def subtract_months(value: date, months: int) -> date:
+    month_index = value.month - months
+    year = value.year + (month_index - 1) // 12
+    month = (month_index - 1) % 12 + 1
+    month_lengths = [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    day = min(value.day, month_lengths[month - 1])
+    return date(year, month, day)
+
+
 def pageview_dates() -> tuple[str, str]:
-    today = date.today()
-    start = today - timedelta(days=90)
-    return start.strftime("%Y%m%d"), today.strftime("%Y%m%d")
+    end = date.today() - timedelta(days=1)
+    start = subtract_months(end, 6)
+    return start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
 
 
 async def run_article_identity(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
@@ -199,7 +208,8 @@ async def run_article_revisions(target: StaticTargetRecord, client: httpx.AsyncC
 
 
 async def run_article_pageviews(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
-    existing = await get_existing_article_pageviews(target)
+    start, end = pageview_dates()
+    existing = await get_existing_article_pageviews(target, start=start, end=end)
     if existing:
         return StaticBuildStepResult(
             step_id="article_pageviews",
@@ -213,7 +223,6 @@ async def run_article_pageviews(target: StaticTargetRecord, client: httpx.AsyncC
             ),
         )
 
-    start, end = pageview_dates()
     pageview_payloads = await fetch_article_pageview_streams(
         lang=target.lang,
         title_slug=target.title_slug,

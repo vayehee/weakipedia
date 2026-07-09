@@ -9,19 +9,19 @@ import httpx
 from wikimedia_search.apis.http_json import get_json
 
 PageviewStreamId = Literal[
-    "human",
-    "mobile_web",
-    "mobile_app",
-    "spider",
-    "automated",
+    "crawlers",
+    "machines",
+    "humans_desktop",
+    "humans_mobile_web",
+    "humans_mobile_app",
 ]
 
 PAGEVIEW_STREAMS: dict[PageviewStreamId, tuple[str, str]] = {
-    "human": ("all-access", "user"),
-    "mobile_web": ("mobile-web", "user"),
-    "mobile_app": ("mobile-app", "user"),
-    "spider": ("all-access", "spider"),
-    "automated": ("all-access", "automated"),
+    "crawlers": ("all-access", "spider"),
+    "machines": ("all-access", "automated"),
+    "humans_desktop": ("desktop", "user"),
+    "humans_mobile_web": ("mobile-web", "user"),
+    "humans_mobile_app": ("mobile-app", "user"),
 }
 
 
