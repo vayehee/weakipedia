@@ -693,6 +693,7 @@ body {
   gap: 9px;
   margin: 0;
   padding: 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
   list-style: none;
 }
 
@@ -728,7 +729,8 @@ body {
 
 .static-build-error-message {
   display: block;
-  margin-top: 2px;
+  margin-top: 3px;
+  padding-left: 4ch;
   font-size: 0.82rem;
 }
 
