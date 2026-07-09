@@ -275,18 +275,160 @@ async def ensure_schema(conn: asyncpg.Connection) -> None:
 
         CREATE TABLE IF NOT EXISTS target_sources (
             id TEXT PRIMARY KEY,
-            target_id TEXT NOT NULL REFERENCES targets(id),
-            url TEXT NOT NULL,
             canonical_url TEXT NOT NULL,
+            original_url TEXT,
+            url_hash TEXT,
             domain TEXT,
+            registrable_domain TEXT,
             title TEXT,
-            source_text TEXT,
-            source_text_hash TEXT,
-            fetched_at TIMESTAMPTZ,
+            description TEXT,
+            published_at TIMESTAMPTZ,
+            accessed_at TIMESTAMPTZ,
+            author TEXT,
+            publisher TEXT,
+            publication_name TEXT,
+            language TEXT,
+            archive_url TEXT,
+            archive_date DATE,
+            doi TEXT,
+            isbn TEXT,
+            issn TEXT,
+            pmid TEXT,
+            page TEXT,
+            pages TEXT,
+            volume TEXT,
+            issue TEXT,
+            raw_metadata_json JSONB,
+            full_text TEXT,
+            full_text_added_by_user_id TEXT,
+            full_text_added_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            UNIQUE(target_id, canonical_url)
+            UNIQUE(canonical_url)
         );
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS original_url TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS url_hash TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS registrable_domain TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS description TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS accessed_at TIMESTAMPTZ;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS author TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS publisher TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS publication_name TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS language TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS archive_url TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS archive_date DATE;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS doi TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS isbn TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS issn TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS pmid TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS page TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS pages TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS volume TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS issue TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS raw_metadata_json JSONB;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS full_text TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS full_text_added_by_user_id TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS full_text_added_at TIMESTAMPTZ;
+
+        ALTER TABLE target_sources
+            ALTER COLUMN canonical_url SET NOT NULL;
+
+        ALTER TABLE target_sources
+            DROP COLUMN IF EXISTS target_id;
+
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'target_sources' AND column_name = 'url'
+            ) THEN
+                EXECUTE 'UPDATE target_sources SET original_url = COALESCE(original_url, url)';
+            END IF;
+        END $$;
+
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'target_sources' AND column_name = 'source_text'
+            ) THEN
+                EXECUTE 'UPDATE target_sources SET full_text = COALESCE(full_text, source_text)';
+            END IF;
+        END $$;
+
+        UPDATE target_sources
+        SET url_hash = COALESCE(url_hash, md5(canonical_url))
+        WHERE canonical_url IS NOT NULL;
+
+        ALTER TABLE target_sources
+            DROP COLUMN IF EXISTS url;
+
+        ALTER TABLE target_sources
+            DROP COLUMN IF EXISTS source_text;
+
+        ALTER TABLE target_sources
+            DROP COLUMN IF EXISTS source_text_hash;
+
+        ALTER TABLE target_sources
+            DROP COLUMN IF EXISTS fetched_at;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS target_sources_canonical_url_idx
+            ON target_sources (canonical_url);
+
+        CREATE INDEX IF NOT EXISTS target_sources_domain_idx
+            ON target_sources (domain);
+
+        CREATE INDEX IF NOT EXISTS target_sources_published_at_idx
+            ON target_sources (published_at);
 
         CREATE TABLE IF NOT EXISTS w_editors (
             id TEXT PRIMARY KEY,
@@ -529,6 +671,10 @@ def normalized_external_url(url: str) -> str:
     return url.strip()
 
 
+def source_url_hash(canonical_url: str) -> str:
+    return hashlib.md5(canonical_url.encode("utf-8")).hexdigest()
+
+
 def editor_id_for(lang: str, editor_name: str, user_id: int | None) -> str:
     if user_id and user_id > 0:
         return f"w_editor:{lang}:{user_id}"
@@ -690,7 +836,7 @@ async def get_existing_article_parse(target: StaticTargetRecord) -> StaticStepCa
                 (SELECT count(*) FROM w_article_links WHERE target_id = $1 AND article_id = $2) AS links_count,
                 (SELECT count(*) FROM w_article_categories WHERE target_id = $1 AND article_id = $2) AS categories_count,
                 (SELECT count(*) FROM w_article_templates WHERE target_id = $1 AND article_id = $2) AS templates_count,
-                (SELECT count(*) FROM target_sources WHERE target_id = $1) AS external_sources_count,
+                0 AS external_sources_count,
                 (SELECT latest_revid FROM w_articles WHERE id = $2) AS latest_revid,
                 (
                     SELECT min(created_at)
@@ -702,8 +848,6 @@ async def get_existing_article_parse(target: StaticTargetRecord) -> StaticStepCa
                         SELECT created_at FROM w_article_categories WHERE target_id = $1 AND article_id = $2
                         UNION ALL
                         SELECT created_at FROM w_article_templates WHERE target_id = $1 AND article_id = $2
-                        UNION ALL
-                        SELECT created_at FROM target_sources WHERE target_id = $1
                     ) AS existing_records
                 ) AS earliest_record_at
             """,
@@ -1314,17 +1458,22 @@ async def persist_article_parse(
                 await conn.execute(
                     """
                     INSERT INTO target_sources (
-                        id, target_id, url, canonical_url, domain, updated_at
+                        id, canonical_url, original_url, url_hash, domain, registrable_domain,
+                        accessed_at, updated_at
                     )
-                    VALUES ($1, $2, $3, $3, $4, $5)
-                    ON CONFLICT (target_id, canonical_url) DO UPDATE SET
-                        url = EXCLUDED.url,
-                        domain = EXCLUDED.domain,
+                    VALUES ($1, $2, $3, $4, $5, $5, $6, $6)
+                    ON CONFLICT (canonical_url) DO UPDATE SET
+                        original_url = COALESCE(target_sources.original_url, EXCLUDED.original_url),
+                        url_hash = COALESCE(target_sources.url_hash, EXCLUDED.url_hash),
+                        domain = COALESCE(target_sources.domain, EXCLUDED.domain),
+                        registrable_domain = COALESCE(target_sources.registrable_domain, EXCLUDED.registrable_domain),
+                        accessed_at = COALESCE(target_sources.accessed_at, EXCLUDED.accessed_at),
                         updated_at = EXCLUDED.updated_at
                     """,
-                    stable_row_id("target_source", target.target_id, canonical_url),
-                    target.target_id,
+                    stable_row_id("target_source", canonical_url),
                     canonical_url,
+                    url,
+                    source_url_hash(canonical_url),
                     domain,
                     now,
                 )
