@@ -27,7 +27,13 @@ ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
         "ALLOWED_ORIGINS",
-        "https://weakipedia.vayehee.com,http://localhost:5173,http://127.0.0.1:5173",
+        (
+            "https://weakipedia.vayehee.com,"
+            "https://weakipedia-8092c.web.app,"
+            "https://weakipedia-8092c.firebaseapp.com,"
+            "http://localhost:5173,"
+            "http://127.0.0.1:5173"
+        ),
     ).split(",")
     if origin.strip()
 ]
