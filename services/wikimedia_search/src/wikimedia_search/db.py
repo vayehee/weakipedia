@@ -14,6 +14,7 @@ import asyncpg
 from wikimedia_search.apis.w_article_parse import ArticleParsePayload
 from wikimedia_search.apis.w_article_revisions import ArticleRevisionsPayload
 from wikimedia_search.apis.w_article_authorship import ArticleAuthorshipPayload
+from wikimedia_search.apis.source_browser import SourceBrowserResult
 from wikimedia_search.apis.g_trends import GoogleTrendsPayload
 from wikimedia_search.apis.w_article_pageviews import ArticlePageviewsPayload
 from wikimedia_search.apis.w_article_traffic import ArticleTrafficPayload, TrafficDirection
@@ -302,6 +303,14 @@ async def ensure_schema(conn: asyncpg.Connection) -> None:
             full_text TEXT,
             full_text_added_by_user_id TEXT,
             full_text_added_at TIMESTAMPTZ,
+            fetched_text TEXT,
+            fetched_text_at TIMESTAMPTZ,
+            fetched_text_status TEXT,
+            fetched_text_error TEXT,
+            final_url TEXT,
+            content_type TEXT,
+            http_status INTEGER,
+            extraction_method TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             UNIQUE(canonical_url)
@@ -378,6 +387,30 @@ async def ensure_schema(conn: asyncpg.Connection) -> None:
 
         ALTER TABLE target_sources
             ADD COLUMN IF NOT EXISTS full_text_added_at TIMESTAMPTZ;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS fetched_text TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS fetched_text_at TIMESTAMPTZ;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS fetched_text_status TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS fetched_text_error TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS final_url TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS content_type TEXT;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS http_status INTEGER;
+
+        ALTER TABLE target_sources
+            ADD COLUMN IF NOT EXISTS extraction_method TEXT;
 
         ALTER TABLE target_sources
             ALTER COLUMN canonical_url SET NOT NULL;
@@ -1492,6 +1525,87 @@ async def persist_article_parse(
         external_sources_count=external_source_count,
         latest_revid=parsed.revid,
     )
+
+
+async def persist_source_browser_result(
+    canonical_url: str,
+    result: SourceBrowserResult,
+) -> None:
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+        domain = urlparse(canonical_url).netloc.lower() or None
+        await conn.execute(
+            """
+            INSERT INTO target_sources (
+                id, canonical_url, original_url, url_hash, domain, registrable_domain,
+                title, description, published_at, accessed_at, author, publisher,
+                publication_name, language, raw_metadata_json, fetched_text, fetched_text_at,
+                fetched_text_status, fetched_text_error, final_url, content_type, http_status,
+                extraction_method, updated_at
+            )
+            VALUES (
+                $1, $2, $3, $4, $5, $5,
+                $6, $7, $8, $9, $10, $11,
+                $12, $13, $14::jsonb, $15, $16,
+                $17, $18, $19, $20, $21,
+                $22, $9
+            )
+            ON CONFLICT (canonical_url) DO UPDATE SET
+                original_url = COALESCE(target_sources.original_url, EXCLUDED.original_url),
+                url_hash = COALESCE(target_sources.url_hash, EXCLUDED.url_hash),
+                domain = COALESCE(target_sources.domain, EXCLUDED.domain),
+                registrable_domain = COALESCE(
+                    target_sources.registrable_domain,
+                    EXCLUDED.registrable_domain
+                ),
+                title = COALESCE(EXCLUDED.title, target_sources.title),
+                description = COALESCE(EXCLUDED.description, target_sources.description),
+                published_at = COALESCE(EXCLUDED.published_at, target_sources.published_at),
+                accessed_at = EXCLUDED.accessed_at,
+                author = COALESCE(EXCLUDED.author, target_sources.author),
+                publisher = COALESCE(EXCLUDED.publisher, target_sources.publisher),
+                publication_name = COALESCE(
+                    EXCLUDED.publication_name,
+                    target_sources.publication_name
+                ),
+                language = COALESCE(EXCLUDED.language, target_sources.language),
+                raw_metadata_json = COALESCE(EXCLUDED.raw_metadata_json, target_sources.raw_metadata_json),
+                fetched_text = EXCLUDED.fetched_text,
+                fetched_text_at = EXCLUDED.fetched_text_at,
+                fetched_text_status = EXCLUDED.fetched_text_status,
+                fetched_text_error = EXCLUDED.fetched_text_error,
+                final_url = EXCLUDED.final_url,
+                content_type = EXCLUDED.content_type,
+                http_status = EXCLUDED.http_status,
+                extraction_method = EXCLUDED.extraction_method,
+                updated_at = EXCLUDED.updated_at
+            """,
+            stable_row_id("target_source", canonical_url),
+            canonical_url,
+            result.requested_url,
+            source_url_hash(canonical_url),
+            domain,
+            result.title,
+            result.description,
+            result.published_at,
+            result.fetched_text_at,
+            result.author,
+            result.publisher,
+            result.publication_name,
+            result.language,
+            json.dumps(result.raw_metadata),
+            result.fetched_text,
+            result.fetched_text_at,
+            result.fetched_text_status,
+            result.fetched_text_error,
+            result.final_url,
+            result.content_type,
+            result.http_status,
+            result.extraction_method,
+        )
+    finally:
+        await conn.close()
 
 
 async def persist_article_revisions(

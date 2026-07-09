@@ -22,8 +22,26 @@ class ResolveResponse(BaseModel):
     suggestions: list[Suggestion]
 
 
+class VisitorContextRequest(BaseModel):
+    userAgent: str | None = None
+    language: str | None = None
+    languages: list[str] = []
+    timezone: str | None = None
+    viewportWidth: int | None = None
+    viewportHeight: int | None = None
+    screenWidth: int | None = None
+    screenHeight: int | None = None
+    devicePixelRatio: float | None = None
+    platform: str | None = None
+
+
+class StaticBuildStepRunRequest(BaseModel):
+    visitorContext: VisitorContextRequest | None = None
+
+
 class StaticTargetCreateRequest(BaseModel):
     selectedUrl: str
+    visitorContext: VisitorContextRequest | None = None
 
 
 class ArticleMetadataResponse(BaseModel):

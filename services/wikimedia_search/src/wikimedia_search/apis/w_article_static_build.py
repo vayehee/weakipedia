@@ -6,6 +6,7 @@ from typing import Awaitable, Callable, Literal
 
 import httpx
 
+from wikimedia_search.apis.source_browser import VisitorBrowserContext
 from wikimedia_search.apis.w_article_editors import summarize_article_editors
 from wikimedia_search.apis.g_trends import GoogleTrendsConfigError, fetch_google_trends_timeseries
 from wikimedia_search.apis.w_article_authorship import fetch_article_authorship
@@ -520,11 +521,17 @@ STATIC_BUILD_STEP_RUNNERS: dict[str, StepRunner] = {
 }
 
 
-async def run_static_build_step(target: StaticTargetRecord, step_id: str) -> StaticBuildStepResult:
+async def run_static_build_step(
+    target: StaticTargetRecord,
+    step_id: str,
+    visitor_context: VisitorBrowserContext | None = None,
+) -> StaticBuildStepResult:
     runner = STATIC_BUILD_STEP_RUNNERS.get(step_id)
 
     if not runner:
         raise StaticBuildStepError("Unknown static build step.")
+
+    _ = visitor_context
 
     async with httpx.AsyncClient(
         headers={"User-Agent": WIKIMEDIA_USER_AGENT},

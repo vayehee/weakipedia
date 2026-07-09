@@ -99,6 +99,19 @@ type StaticBuildStepDefinition = {
   label: string;
 };
 
+type VisitorContextPayload = {
+  userAgent: string;
+  language: string;
+  languages: string[];
+  timezone: string;
+  viewportWidth: number;
+  viewportHeight: number;
+  screenWidth: number;
+  screenHeight: number;
+  devicePixelRatio: number;
+  platform: string;
+};
+
 const STATIC_BUILD_STEPS = [
   {
     id: "article_identity",
@@ -189,10 +202,25 @@ async function resolveWikimediaInput(input: string, signal: AbortSignal) {
   return (await response.json()) as ResolveResponse;
 }
 
+function collectVisitorContext(): VisitorContextPayload {
+  return {
+    userAgent: window.navigator.userAgent,
+    language: window.navigator.language,
+    languages: Array.from(window.navigator.languages ?? []),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+    screenWidth: window.screen.width,
+    screenHeight: window.screen.height,
+    devicePixelRatio: window.devicePixelRatio,
+    platform: window.navigator.platform,
+  };
+}
+
 async function createStaticTarget(selectedUrl: string) {
   const api = new URL("/static-targets", WIKIMEDIA_SEARCH_API_URL);
   const response = await fetch(api, {
-    body: JSON.stringify({ selectedUrl }),
+    body: JSON.stringify({ selectedUrl, visitorContext: collectVisitorContext() }),
     headers: {
       "Content-Type": "application/json",
     },
@@ -228,6 +256,10 @@ async function runStaticTargetBuildStep(
     WIKIMEDIA_SEARCH_API_URL,
   );
   const response = await fetch(api, {
+    body: JSON.stringify({ visitorContext: collectVisitorContext() }),
+    headers: {
+      "Content-Type": "application/json",
+    },
     method: "POST",
     signal,
   });

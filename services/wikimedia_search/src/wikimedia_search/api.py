@@ -2,17 +2,20 @@ import os
 from urllib.parse import quote
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from .apis.source_browser import VisitorBrowserContext
 from .apis.w_article_static_build import StaticBuildStepError, run_static_build_step
 from .apis.w_article_metadata import ArticleMetadataError
 from .models import (
     ArticleMetadataResponse,
     ResolveResponse,
+    StaticBuildStepRunRequest,
     StaticBuildStepRunResponse,
     StaticTargetCreateRequest,
     StaticTargetResponse,
+    VisitorContextRequest,
 )
 from .resolver import resolve_input
 from .static_targets import (
@@ -58,6 +61,24 @@ async def resolve(input: str = Query(..., min_length=1, max_length=500)) -> Reso
     return await resolve_input(input)
 
 
+def browser_context_from_request(
+    visitor_context: VisitorContextRequest | None,
+) -> VisitorBrowserContext | None:
+    if not visitor_context:
+        return None
+
+    return VisitorBrowserContext(
+        user_agent=visitor_context.userAgent,
+        language=visitor_context.language,
+        languages=tuple(visitor_context.languages),
+        timezone=visitor_context.timezone,
+        viewport_width=visitor_context.viewportWidth,
+        viewport_height=visitor_context.viewportHeight,
+        device_pixel_ratio=visitor_context.devicePixelRatio,
+        platform=visitor_context.platform,
+    )
+
+
 def static_target_response(target: StaticTargetRecord) -> StaticTargetResponse:
     metadata = target.article_metadata
     return StaticTargetResponse(
@@ -92,6 +113,7 @@ def static_target_response(target: StaticTargetRecord) -> StaticTargetResponse:
 @app.post("/static-targets", response_model=StaticTargetResponse)
 async def create_static_target(request: StaticTargetCreateRequest) -> StaticTargetResponse:
     try:
+        browser_context_from_request(request.visitorContext)
         target = await create_or_get_static_target(request.selectedUrl)
     except StaticTargetError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -118,10 +140,17 @@ async def read_static_target(target_id: str) -> StaticTargetResponse:
 async def run_static_target_build_step(
     target_id: str,
     step_id: str,
+    request: StaticBuildStepRunRequest | None = Body(default=None),
 ) -> StaticBuildStepRunResponse:
     try:
         target = get_static_target(target_id)
-        result = await run_static_build_step(target, step_id)
+        result = await run_static_build_step(
+            target,
+            step_id,
+            visitor_context=browser_context_from_request(
+                request.visitorContext if request else None
+            ),
+        )
     except StaticTargetNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except StaticBuildStepError as error:
