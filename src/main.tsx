@@ -787,6 +787,7 @@ function StaticDashboardPage({
   const targetTitle = staticTarget?.canonicalTitle ?? getTargetTitle(targetId);
   const targetFetchDate = getTargetFetchDate();
   const dashboardViewLabel = getDashboardViewLabel(activeView);
+  const publicTargetSlug = titleSlug ?? staticTarget?.titleSlug ?? targetId;
   const isStaticBuildComplete = staticBuildSteps.every(
     (step) => step.status === "success" || step.status === "error",
   );
@@ -802,34 +803,33 @@ function StaticDashboardPage({
     const controller = new AbortController();
     setStaticTargetLookupFailed(false);
 
-    readStaticTarget(targetId, controller.signal)
-      .then((target) => {
+    async function loadStaticTarget() {
+      try {
+        if (lang && titleSlug) {
+          const recoveredTarget = await createStaticTarget(
+            `https://${lang}.wikipedia.org/wiki/${titleSlug}`,
+          );
+
+          if (!controller.signal.aborted) {
+            setStaticTarget(recoveredTarget);
+          }
+          return;
+        }
+
+        const target = await readStaticTarget(targetId, controller.signal);
         if (!controller.signal.aborted) {
           setStaticTarget(target);
         }
-      })
-      .catch(async (error: unknown) => {
+      } catch (error: unknown) {
         if ((error as Error).name === "AbortError" || controller.signal.aborted) {
           return;
         }
 
-        if (lang && titleSlug) {
-          try {
-            const recoveredTarget = await createStaticTarget(
-              `https://${lang}.wikipedia.org/wiki/${titleSlug}`,
-            );
-
-            if (!controller.signal.aborted) {
-              setStaticTarget(recoveredTarget);
-            }
-            return;
-          } catch {
-            // Fall through to the visible dashboard error.
-          }
-        }
-
         setStaticTargetLookupFailed(true);
-      });
+      }
+    }
+
+    void loadStaticTarget();
 
     return () => controller.abort();
   }, [lang, targetId, titleSlug]);
@@ -977,7 +977,7 @@ function StaticDashboardPage({
           {DASHBOARD_TABS.map((tab) => (
             <a
               className={`dashboard-tab ${activeView === tab.id ? "is-active" : ""}`}
-              href={`/static?target=${encodeURIComponent(targetId)}${
+              href={`/static?target=${encodeURIComponent(publicTargetSlug)}${
                 lang ? `&lang=${encodeURIComponent(lang)}` : ""
               }${titleSlug ? `&title=${encodeURIComponent(titleSlug)}` : ""}&view=${tab.id}`}
               key={tab.id}

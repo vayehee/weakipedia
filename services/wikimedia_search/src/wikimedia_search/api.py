@@ -69,7 +69,7 @@ def static_target_response(target: StaticTargetRecord) -> StaticTargetResponse:
         canonicalTitle=target.canonical_title,
         canonicalUrl=target.canonical_url,
         route=(
-            f"/static?target={target.target_id}"
+            f"/static?target={quote(target.title_slug, safe='_:()')}"
             f"&lang={target.lang}"
             f"&title={quote(target.title_slug, safe='_:()')}"
             "&view=stats"
