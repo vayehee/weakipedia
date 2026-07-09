@@ -79,7 +79,9 @@ const DASHBOARD_TABS = [
 type DashboardView = (typeof DASHBOARD_TABS)[number]["id"];
 
 type StaticDashboardRoute = {
+  lang: string | null;
   targetId: string;
+  titleSlug: string | null;
   view: DashboardView;
 };
 
@@ -325,7 +327,9 @@ function getStaticDashboardRoute(location: Location): StaticDashboardRoute | nul
 
     if (targetId) {
       return {
+        lang: searchParams.get("lang"),
         targetId,
+        titleSlug: searchParams.get("title"),
         view: getDashboardView(searchParams.get("view")),
       };
     }
@@ -335,7 +339,9 @@ function getStaticDashboardRoute(location: Location): StaticDashboardRoute | nul
 
   if (targetPathMatch) {
     return {
+      lang: searchParams.get("lang"),
       targetId: decodeURIComponent(targetPathMatch[1]),
+      titleSlug: searchParams.get("title"),
       view: getDashboardView(searchParams.get("view")),
     };
   }
@@ -344,7 +350,9 @@ function getStaticDashboardRoute(location: Location): StaticDashboardRoute | nul
 
   if (targetEqualsMatch) {
     return {
+      lang: searchParams.get("lang"),
       targetId: decodeURIComponent(targetEqualsMatch[1]),
+      titleSlug: searchParams.get("title"),
       view: getDashboardView(searchParams.get("view")),
     };
   }
@@ -556,7 +564,9 @@ function App() {
   if (staticDashboardRoute) {
     return (
       <StaticDashboardPage
+        lang={staticDashboardRoute.lang}
         targetId={staticDashboardRoute.targetId}
+        titleSlug={staticDashboardRoute.titleSlug}
         activeView={staticDashboardRoute.view}
         nextThemeMode={nextThemeMode}
         ThemeIcon={ThemeIcon}
@@ -747,14 +757,18 @@ function App() {
 
 type StaticDashboardPageProps = {
   targetId: string;
+  lang: string | null;
   activeView: DashboardView;
   nextThemeMode: ThemeMode;
   ThemeIcon: typeof Moon;
+  titleSlug: string | null;
   onToggleTheme: () => void;
 };
 
 function StaticDashboardPage({
+  lang,
   targetId,
+  titleSlug,
   activeView,
   nextThemeMode,
   ThemeIcon,
@@ -788,16 +802,31 @@ function StaticDashboardPage({
           setStaticTarget(target);
         }
       })
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
         if ((error as Error).name === "AbortError" || controller.signal.aborted) {
           return;
+        }
+
+        if (lang && titleSlug) {
+          try {
+            const recoveredTarget = await createStaticTarget(
+              `https://${lang}.wikipedia.org/wiki/${titleSlug}`,
+            );
+
+            if (!controller.signal.aborted) {
+              setStaticTarget(recoveredTarget);
+            }
+            return;
+          } catch {
+            // Fall through to the visible dashboard error.
+          }
         }
 
         setStaticTargetLookupFailed(true);
       });
 
     return () => controller.abort();
-  }, [targetId]);
+  }, [lang, targetId, titleSlug]);
 
   useEffect(() => {
     if (!staticTargetLookupFailed) {
@@ -841,7 +870,7 @@ function StaticDashboardPage({
         );
 
         try {
-          const result = await runStaticTargetBuildStep(targetId, step.id, controller.signal);
+          const result = await runStaticTargetBuildStep(staticTarget.targetId, step.id, controller.signal);
 
           if (controller.signal.aborted) {
             return;
@@ -881,7 +910,7 @@ function StaticDashboardPage({
     void runBuildSteps();
 
     return () => controller.abort();
-  }, [staticTarget, targetId]);
+  }, [staticTarget]);
 
   function requestRefresh() {
     window.alert("Login / Sign up is required to refresh this dashboard.");
@@ -942,7 +971,9 @@ function StaticDashboardPage({
           {DASHBOARD_TABS.map((tab) => (
             <a
               className={`dashboard-tab ${activeView === tab.id ? "is-active" : ""}`}
-              href={`/static?target=${encodeURIComponent(targetId)}&view=${tab.id}`}
+              href={`/static?target=${encodeURIComponent(targetId)}${
+                lang ? `&lang=${encodeURIComponent(lang)}` : ""
+              }${titleSlug ? `&title=${encodeURIComponent(titleSlug)}` : ""}&view=${tab.id}`}
               key={tab.id}
               aria-current={activeView === tab.id ? "page" : undefined}
             >

@@ -1,4 +1,5 @@
 import os
+from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
@@ -61,7 +62,12 @@ def static_target_response(target: StaticTargetRecord) -> StaticTargetResponse:
         titleSlug=target.title_slug,
         canonicalTitle=target.canonical_title,
         canonicalUrl=target.canonical_url,
-        route=f"/static?target={target.target_id}&view=stats",
+        route=(
+            f"/static?target={target.target_id}"
+            f"&lang={target.lang}"
+            f"&title={quote(target.title_slug, safe='_:()')}"
+            "&view=stats"
+        ),
         articleMetadata=ArticleMetadataResponse(
             lang=metadata.lang,
             host=metadata.host,
