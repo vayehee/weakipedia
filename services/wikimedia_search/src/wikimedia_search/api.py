@@ -11,7 +11,13 @@ from .models import (
     StaticTargetResponse,
 )
 from .resolver import resolve_input
-from .static_targets import StaticTargetError, StaticTargetRecord, create_or_get_static_target
+from .static_targets import (
+    StaticTargetError,
+    StaticTargetNotFoundError,
+    StaticTargetRecord,
+    create_or_get_static_target,
+    get_static_target,
+)
 
 ALLOWED_ORIGINS = [
     origin.strip()
@@ -76,5 +82,15 @@ async def create_static_target(request: StaticTargetCreateRequest) -> StaticTarg
         raise HTTPException(status_code=400, detail=str(error)) from error
     except ArticleMetadataError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+    return static_target_response(target)
+
+
+@app.get("/static-targets/{target_id}", response_model=StaticTargetResponse)
+async def read_static_target(target_id: str) -> StaticTargetResponse:
+    try:
+        target = get_static_target(target_id)
+    except StaticTargetNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
     return static_target_response(target)

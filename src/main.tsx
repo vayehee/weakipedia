@@ -49,7 +49,13 @@ type ResolveResponse = {
 };
 
 type StaticTargetResponse = {
+  canonicalTitle: string;
+  canonicalUrl: string;
+  entityType: string;
+  lang: string;
   route: string;
+  targetId: string;
+  titleSlug: string;
 };
 
 type ThemeMode = "light" | "dark";
@@ -147,6 +153,17 @@ async function createStaticTarget(selectedUrl: string) {
   if (!response.ok) {
     const error = (await response.json().catch(() => null)) as { detail?: string } | null;
     throw new Error(error?.detail ?? "Unable to create this static target.");
+  }
+
+  return (await response.json()) as StaticTargetResponse;
+}
+
+async function readStaticTarget(targetId: string, signal: AbortSignal) {
+  const api = new URL(`/static-targets/${encodeURIComponent(targetId)}`, WIKIMEDIA_SEARCH_API_URL);
+  const response = await fetch(api, { signal });
+
+  if (!response.ok) {
+    throw new Error("Unable to read this static target.");
   }
 
   return (await response.json()) as StaticTargetResponse;
@@ -651,7 +668,9 @@ function StaticDashboardPage({
   onToggleTheme,
 }: StaticDashboardPageProps) {
   const [dashboardSearch, setDashboardSearch] = useState("");
-  const targetTitle = getTargetTitle(targetId);
+  const [staticTarget, setStaticTarget] = useState<StaticTargetResponse | null>(null);
+  const [staticTargetLookupFailed, setStaticTargetLookupFailed] = useState(false);
+  const targetTitle = staticTarget?.canonicalTitle ?? getTargetTitle(targetId);
   const targetFetchDate = getTargetFetchDate();
   const dashboardViewLabel = getDashboardViewLabel(activeView);
   const [activeBuildStepIndex, setActiveBuildStepIndex] = useState(0);
@@ -668,6 +687,33 @@ function StaticDashboardPage({
 
     return { label, status: "pending" };
   });
+
+  useEffect(() => {
+    if (targetId.toLocaleLowerCase() === "test") {
+      setStaticTarget(null);
+      setStaticTargetLookupFailed(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setStaticTargetLookupFailed(false);
+
+    readStaticTarget(targetId, controller.signal)
+      .then((target) => {
+        if (!controller.signal.aborted) {
+          setStaticTarget(target);
+        }
+      })
+      .catch((error: unknown) => {
+        if ((error as Error).name === "AbortError" || controller.signal.aborted) {
+          return;
+        }
+
+        setStaticTargetLookupFailed(true);
+      });
+
+    return () => controller.abort();
+  }, [targetId]);
 
   useEffect(() => {
     if (isStaticBuildComplete) {
@@ -773,8 +819,9 @@ function StaticDashboardPage({
             <span>{targetTitle}</span>
           </h1>
           <p>
-            This frozen dashboard will show the article, traffic, views, edits, claims,
-            sources, and related signals captured for this target.
+            {staticTargetLookupFailed
+              ? "This target route exists, but its temporary metadata cache is no longer available. Persistent target storage is the next backend step."
+              : "This frozen dashboard will show the article, traffic, views, edits, claims, sources, and related signals captured for this target."}
           </p>
         </section>
 

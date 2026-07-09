@@ -25,10 +25,15 @@ class StaticTargetRecord:
 
 
 _targets_by_identity: dict[str, StaticTargetRecord] = {}
+_targets_by_id: dict[str, StaticTargetRecord] = {}
 
 
 class StaticTargetError(Exception):
     """Raised when a selected search value cannot become a static target."""
+
+
+class StaticTargetNotFoundError(Exception):
+    """Raised when a static target id is not present in the target registry."""
 
 
 def target_id_for_article(lang: str, page_id: int) -> str:
@@ -55,6 +60,7 @@ async def create_or_get_static_target(selected_url: str) -> StaticTargetRecord:
     identity_key = f"w_article:{metadata.lang}:{metadata.page_id}"
     existing = _targets_by_identity.get(identity_key)
     if existing:
+        _targets_by_id[existing.target_id] = existing
         return existing
 
     target = StaticTargetRecord(
@@ -68,4 +74,14 @@ async def create_or_get_static_target(selected_url: str) -> StaticTargetRecord:
         article_metadata=metadata,
     )
     _targets_by_identity[identity_key] = target
+    _targets_by_id[target.target_id] = target
+    return target
+
+
+def get_static_target(target_id: str) -> StaticTargetRecord:
+    target = _targets_by_id.get(target_id)
+
+    if not target:
+        raise StaticTargetNotFoundError("Static target was not found.")
+
     return target
