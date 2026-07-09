@@ -133,6 +133,10 @@ const STATIC_BUILD_STEPS = [
     label: "Mapping human and machine article access across available platforms...",
   },
   {
+    id: "google_trends",
+    label: "Retrieving broader interest patterns around the article subject...",
+  },
+  {
     id: "editor_summary",
     label: "Summarizing editor activity and article stewardship signals...",
   },
@@ -143,10 +147,6 @@ const STATIC_BUILD_STEPS = [
   {
     id: "claim_sources",
     label: "Mapping claims to citations and external source material...",
-  },
-  {
-    id: "google_trends",
-    label: "Retrieving broader interest patterns around the article subject...",
   },
   {
     id: "google_news",
