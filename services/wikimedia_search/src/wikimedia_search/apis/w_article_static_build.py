@@ -3,10 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Awaitable, Callable, Literal
-from urllib.parse import quote
 
 import httpx
 
+from wikimedia_search.apis.w_article_editors import summarize_article_editors
+from wikimedia_search.apis.w_article_pageviews import fetch_article_pageviews
+from wikimedia_search.apis.w_article_parse import fetch_article_parse
+from wikimedia_search.apis.w_article_revisions import fetch_article_revisions
+from wikimedia_search.apis.w_article_traffic import fetch_article_traffic
+from wikimedia_search.apis.wdata_item import fetch_wikidata_entity
 from wikimedia_search.resolver import WIKIMEDIA_USER_AGENT
 from wikimedia_search.static_targets import StaticTargetRecord
 
@@ -48,31 +53,10 @@ class StaticBuildStepResult:
     message: str
 
 
-def encoded_title(target: StaticTargetRecord) -> str:
-    return quote(target.title_slug, safe="")
-
-
 def pageview_dates() -> tuple[str, str]:
     today = date.today()
     start = today - timedelta(days=90)
     return start.strftime("%Y%m%d"), today.strftime("%Y%m%d")
-
-
-def assert_mediawiki_response(data: dict) -> None:
-    if "error" in data:
-        error = data["error"]
-        raise StaticBuildStepError(error.get("info") or error.get("code") or "MediaWiki API error.")
-
-
-async def get_json(client: httpx.AsyncClient, url: str, *, params: dict | None = None) -> dict:
-    response = await client.get(url, params=params)
-    response.raise_for_status()
-    data = response.json()
-
-    if not isinstance(data, dict):
-        raise StaticBuildStepError("API response was not a JSON object.")
-
-    return data
 
 
 async def run_article_identity(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
@@ -88,32 +72,18 @@ async def run_article_identity(target: StaticTargetRecord, client: httpx.AsyncCl
 
 
 async def run_article_parse(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
-    data = await get_json(
-        client,
-        f"https://{target.article_metadata.host}/w/api.php",
-        params={
-            "action": "parse",
-            "page": target.title_slug,
-            "prop": "sections|categories|links|externallinks|templates|images|revid|displaytitle",
-            "formatversion": "2",
-            "format": "json",
-            "origin": "*",
-        },
+    parsed = await fetch_article_parse(
+        host=target.article_metadata.host,
+        title_slug=target.title_slug,
+        client=client,
     )
-    assert_mediawiki_response(data)
-    parsed = data.get("parse", {})
-    sections = len(parsed.get("sections", []))
-    categories = len(parsed.get("categories", []))
-    links = len(parsed.get("links", []))
-    external_links = len(parsed.get("externallinks", []))
-    templates = len(parsed.get("templates", []))
-    images = len(parsed.get("images", []))
     raise stuck_after_fetch(
         fetched=(
             "MediaWiki parse payload "
-            f"revid={parsed.get('revid', 'unknown')}, sections={sections}, "
-            f"categories={categories}, links={links}, external_links={external_links}, "
-            f"templates={templates}, images={images}"
+            f"revid={parsed.revid or 'unknown'}, sections={len(parsed.sections)}, "
+            f"categories={len(parsed.categories)}, links={len(parsed.links)}, "
+            f"external_links={len(parsed.external_links)}, templates={len(parsed.templates)}, "
+            f"images={len(parsed.images)}, html_bytes={len(parsed.text_html.encode('utf-8'))}"
         ),
         stuck_at="normalization and persistence",
         next_fix=(
@@ -124,25 +94,16 @@ async def run_article_parse(target: StaticTargetRecord, client: httpx.AsyncClien
 
 
 async def run_article_revisions(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
-    data = await get_json(
-        client,
-        f"https://{target.article_metadata.host}/w/api.php",
-        params={
-            "action": "query",
-            "prop": "revisions",
-            "titles": target.title_slug,
-            "rvprop": "ids|timestamp|user",
-            "rvlimit": "500",
-            "format": "json",
-            "formatversion": "2",
-            "origin": "*",
-        },
+    revisions_payload = await fetch_article_revisions(
+        host=target.article_metadata.host,
+        title_slug=target.title_slug,
+        client=client,
     )
-    assert_mediawiki_response(data)
-    pages = data.get("query", {}).get("pages", [])
-    revisions = pages[0].get("revisions", []) if pages else []
     raise stuck_after_fetch(
-        fetched=f"{len(revisions)} MediaWiki revision records with ids, timestamps, and editor names",
+        fetched=(
+            f"{len(revisions_payload.revisions)} MediaWiki revision records with ids, "
+            "parent ids, timestamps, editor names, comments, byte sizes, and minor flags"
+        ),
         stuck_at="revision normalization and persistence",
         next_fix="write w_article_revisions rows and resolve revision editor names into w_editors records",
     )
@@ -157,18 +118,18 @@ async def run_pageviews(
     step_id: str,
 ) -> StaticBuildStepResult:
     start, end = pageview_dates()
-    project = f"{target.lang}.wikipedia.org"
-    data = await get_json(
-        client,
-        (
-            "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/"
-            f"{project}/{access}/{agent}/{encoded_title(target)}/daily/{start}/{end}"
-        ),
+    pageviews = await fetch_article_pageviews(
+        lang=target.lang,
+        title_slug=target.title_slug,
+        access=access,
+        agent=agent,
+        start=start,
+        end=end,
+        client=client,
     )
-    items = data.get("items", [])
     raise stuck_after_fetch(
         fetched=(
-            f"{len(items)} pageview points for project={project}, access={access}, "
+            f"{len(pageviews.items)} pageview points for project={pageviews.project}, access={access}, "
             f"agent={agent}, range={start}-{end}"
         ),
         stuck_at="pageview normalization and persistence",
@@ -183,22 +144,17 @@ async def run_traffic(
     direction: Literal["sources", "destinations"],
     step_id: str,
 ) -> StaticBuildStepResult:
-    data = await get_json(
-        client,
-        (
-            f"https://wikinav.wmcloud.org/api/v1/{target.lang}/"
-            f"{encoded_title(target)}/{direction}/latest"
-        ),
-        params={
-            "start": "1",
-            "limit": "500",
-            "sort": "desc",
-        },
+    traffic = await fetch_article_traffic(
+        lang=target.lang,
+        title_slug=target.title_slug,
+        direction=direction,
+        client=client,
     )
-    results = data.get("results", [])
-    month = data.get("month", "latest month")
     raise stuck_after_fetch(
-        fetched=f"{len(results)} Wikinav {direction} records for month={month}",
+        fetched=(
+            f"{len(traffic.results)} Wikinav {direction} records for month={traffic.month}, "
+            f"total_count={traffic.total_count if traffic.total_count is not None else 'unknown'}"
+        ),
         stuck_at="traffic normalization and persistence",
         next_fix=(
             "write w_article_traffic rows preserving source fields month, title, and views; "
@@ -208,26 +164,17 @@ async def run_traffic(
 
 
 async def run_editor_summary(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
-    data = await get_json(
-        client,
-        f"https://{target.article_metadata.host}/w/api.php",
-        params={
-            "action": "query",
-            "prop": "revisions",
-            "titles": target.title_slug,
-            "rvprop": "ids|timestamp|user",
-            "rvlimit": "500",
-            "format": "json",
-            "formatversion": "2",
-            "origin": "*",
-        },
+    revisions_payload = await fetch_article_revisions(
+        host=target.article_metadata.host,
+        title_slug=target.title_slug,
+        client=client,
     )
-    assert_mediawiki_response(data)
-    pages = data.get("query", {}).get("pages", [])
-    revisions = pages[0].get("revisions", []) if pages else []
-    editors = {revision.get("user") for revision in revisions if revision.get("user")}
+    editors_payload = summarize_article_editors(revisions_payload)
     raise stuck_after_fetch(
-        fetched=f"{len(revisions)} revision records containing {len(editors)} distinct editor names",
+        fetched=(
+            f"{editors_payload.revision_count} revision records containing "
+            f"{editors_payload.distinct_editor_count} distinct editor names"
+        ),
         stuck_at="editor analysis persistence",
         next_fix="write w_editors and w_article_editors summary rows, including edit counts and stewardship signals",
     )
@@ -242,28 +189,12 @@ async def run_wikidata_entity(target: StaticTargetRecord, client: httpx.AsyncCli
             "Next fix: record a nullable w_articles.wikidata_item_id state instead of treating absence as success."
         )
 
-    data = await get_json(
-        client,
-        "https://www.wikidata.org/w/api.php",
-        params={
-            "action": "wbgetentities",
-            "ids": qid,
-            "props": "labels|descriptions|sitelinks|claims",
-            "languages": "en",
-            "format": "json",
-            "origin": "*",
-        },
-    )
-    assert_mediawiki_response(data)
-    entity = data.get("entities", {}).get(qid, {})
-    claims = len(entity.get("claims", {}))
-    sitelinks = len(entity.get("sitelinks", {}))
-    labels = len(entity.get("labels", {}))
-    descriptions = len(entity.get("descriptions", {}))
+    entity = await fetch_wikidata_entity(qid=qid, client=client)
     raise stuck_after_fetch(
         fetched=(
-            f"Wikidata entity {qid}: labels={labels}, descriptions={descriptions}, "
-            f"sitelinks={sitelinks}, claim_groups={claims}"
+            f"Wikidata entity {qid}: labels={entity.labels_count}, "
+            f"descriptions={entity.descriptions_count}, sitelinks={entity.sitelinks_count}, "
+            f"claim_groups={entity.claim_groups_count}"
         ),
         stuck_at="Wikidata normalization and persistence",
         next_fix="write wdata_items, link w_articles.wikidata_item_id, and persist selected labels, sitelinks, and claims",
