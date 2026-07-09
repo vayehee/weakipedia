@@ -6,6 +6,7 @@ from typing import Awaitable, Callable, Literal
 
 import httpx
 
+from wikimedia_search.db import DatabaseNotConfiguredError, persist_article_identity
 from wikimedia_search.apis.w_article_editors import summarize_article_editors
 from wikimedia_search.apis.w_article_pageviews import fetch_article_pageviews
 from wikimedia_search.apis.w_article_parse import fetch_article_parse
@@ -61,13 +62,22 @@ def pageview_dates() -> tuple[str, str]:
 
 async def run_article_identity(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
     metadata = target.article_metadata
-    raise stuck_after_fetch(
-        fetched=(
-            f"MediaWiki identity for {metadata.canonical_title}: page_id={metadata.page_id}, "
-            f"namespace={metadata.namespace}, wikidata_qid={metadata.wikidata_qid or 'none'}"
+    try:
+        persistence = await persist_article_identity(target)
+    except DatabaseNotConfiguredError as error:
+        raise StaticBuildStepError(str(error)) from error
+
+    return StaticBuildStepResult(
+        step_id="article_identity",
+        status="success",
+        message=(
+            f"Stored MediaWiki identity for {metadata.canonical_title}: "
+            f"target_id={persistence.target_id}, article_id={persistence.article_id}, "
+            f"page_id={metadata.page_id}, namespace={metadata.namespace}, "
+            f"wikidata_qid={metadata.wikidata_qid or 'none'}, "
+            f"static_build_id={persistence.static_build_id}, "
+            f"api_query_id={persistence.api_query_id}."
         ),
-        stuck_at="database persistence",
-        next_fix="write or upsert targets, w_articles, and the w_articles-to-wdata_items link in Cloud SQL",
     )
 
 

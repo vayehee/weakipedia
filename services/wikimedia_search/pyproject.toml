@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Weakipedia Wikimedia and Wikidata search resolver"
 requires-python = ">=3.12"
 dependencies = [
+  "asyncpg>=0.30.0",
   "fastapi>=0.115.6",
   "httpx>=0.28.1",
   "rapidfuzz>=3.11.0",

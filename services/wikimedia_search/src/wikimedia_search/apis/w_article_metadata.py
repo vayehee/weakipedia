@@ -12,6 +12,8 @@ from wikimedia_search.resolver import WIKIMEDIA_USER_AGENT
 class ArticleMetadata:
     lang: str
     host: str
+    request_url: str
+    raw_json: dict
     requested_title: str
     canonical_title: str
     title_slug: str
@@ -65,7 +67,8 @@ async def fetch_article_metadata(
             },
         )
         response.raise_for_status()
-        data = response.json().get("query", {})
+        raw_json = response.json()
+        data = raw_json.get("query", {})
         pages = data.get("pages", [])
 
         if not pages:
@@ -87,6 +90,8 @@ async def fetch_article_metadata(
         return ArticleMetadata(
             lang=language_from_host(host),
             host=host,
+            request_url=str(response.url),
+            raw_json=raw_json,
             requested_title=title,
             canonical_title=canonical_title,
             title_slug=title_slug(canonical_title),
