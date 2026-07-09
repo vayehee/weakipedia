@@ -13,6 +13,7 @@ import asyncpg
 
 from wikimedia_search.apis.w_article_parse import ArticleParsePayload
 from wikimedia_search.apis.w_article_revisions import ArticleRevisionsPayload
+from wikimedia_search.apis.w_article_authorship import ArticleAuthorshipPayload
 from wikimedia_search.static_targets import StaticTargetRecord
 
 
@@ -48,6 +49,16 @@ class ArticleRevisionsPersistenceResult:
     static_build_id: str
     api_query_id: str
     revisions_count: int
+    editors_count: int
+
+
+@dataclass(frozen=True)
+class ArticleAuthorshipPersistenceResult:
+    article_id: str
+    static_build_id: str
+    api_query_id: str
+    revision_id: int | None
+    tokens_count: int
     editors_count: int
 
 
@@ -248,6 +259,27 @@ async def ensure_schema(conn: asyncpg.Connection) -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             UNIQUE(article_id, revision_id)
         );
+
+        CREATE TABLE IF NOT EXISTS w_article_text_authorship (
+            id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL REFERENCES targets(id),
+            article_id TEXT NOT NULL REFERENCES w_articles(id),
+            source_query_id TEXT NOT NULL REFERENCES api_queries(id),
+            source_query_kind TEXT NOT NULL,
+            revision_id BIGINT,
+            editor_id TEXT REFERENCES w_editors(id),
+            token_text TEXT NOT NULL,
+            token_id TEXT,
+            token_start INTEGER,
+            token_end INTEGER,
+            introduced_revision_id BIGINT,
+            introduced_at TIMESTAMPTZ,
+            section_id TEXT REFERENCES w_article_sections(id),
+            in_revision_ids JSONB,
+            out_revision_ids JSONB,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(article_id, revision_id, token_id)
+        );
         """
     )
     _schema_ready = True
@@ -308,6 +340,27 @@ def editor_id_for(lang: str, editor_name: str, user_id: int | None) -> str:
 
 def editor_page_url(target: StaticTargetRecord, editor_name: str) -> str:
     return f"https://{target.article_metadata.host}/wiki/User:{quote(editor_name.replace(' ', '_'), safe='_:()')}"
+
+
+def wikiwho_editor_name(editor_reference: str) -> str:
+    if editor_reference.startswith("0|"):
+        return editor_reference[2:]
+
+    return f"wikiwho:{editor_reference}"
+
+
+def wikiwho_editor_page_url(target: StaticTargetRecord, editor_reference: str) -> str | None:
+    if editor_reference.startswith("0|"):
+        return editor_page_url(target, editor_reference[2:])
+
+    return None
+
+
+def wikiwho_editor_id(lang: str, editor_reference: str) -> str:
+    if editor_reference.isdigit() and int(editor_reference) > 0:
+        return f"w_editor:{lang}:{editor_reference}"
+
+    return stable_row_id("w_editor", lang, editor_reference)
 
 
 def revision_id(revision: dict) -> int | None:
@@ -793,3 +846,182 @@ async def persist_article_revisions(
         revisions_count=stored_revisions,
         editors_count=len(editor_ids),
     )
+
+
+def current_revision_tokens(authorship: ArticleAuthorshipPayload) -> tuple[int | None, list[dict]]:
+    if not authorship.revisions:
+        return None, []
+
+    revision_container = authorship.revisions[0]
+    if not isinstance(revision_container, dict) or not revision_container:
+        return None, []
+
+    revision_id_text, revision_payload = next(iter(revision_container.items()))
+    revision_id_value = int(revision_id_text) if str(revision_id_text).isdigit() else None
+    tokens = revision_payload.get("tokens", []) if isinstance(revision_payload, dict) else []
+    return revision_id_value, tokens
+
+
+async def persist_article_authorship(
+    target: StaticTargetRecord,
+    authorship: ArticleAuthorshipPayload,
+) -> ArticleAuthorshipPersistenceResult:
+    if not authorship.success:
+        raise ValueError(authorship.message or "WikiWho returned success=false.")
+
+    article_id = article_id_for(target)
+    static_build_id = static_build_id_for(target)
+    api_query_id = f"api_query:{uuid4()}"
+    now = datetime.now(UTC)
+    source_query_kind = "api_queries"
+    revision_id_value, tokens = current_revision_tokens(authorship)
+    editor_ids: set[str] = set()
+    token_offset = 0
+    stored_tokens = 0
+
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+
+        async with conn.transaction():
+            await conn.execute(
+                """
+                INSERT INTO api_queries (
+                    id, static_build_id, source_type, request_url, http_status,
+                    response_json, fetched_at, status
+                )
+                VALUES ($1, $2, 'w_article_authorship', $3, 200, $4::jsonb, $5, 'success')
+                """,
+                api_query_id,
+                static_build_id,
+                authorship.request_url,
+                json.dumps(authorship.raw_json),
+                now,
+            )
+
+            await conn.execute(
+                "DELETE FROM w_article_text_authorship WHERE target_id = $1 AND article_id = $2",
+                target.target_id,
+                article_id,
+            )
+
+            for index, token in enumerate(tokens):
+                if not isinstance(token, dict):
+                    continue
+
+                token_text = str(token.get("str") or "")
+                token_id = str(token.get("token_id") or index)
+                editor_reference = token.get("editor")
+                editor_id = None
+
+                if editor_reference is not None:
+                    editor_reference = str(editor_reference)
+                    editor_id = await upsert_wikiwho_editor(
+                        conn,
+                        target=target,
+                        editor_reference=editor_reference,
+                        now=now,
+                    )
+                    editor_ids.add(editor_id)
+
+                token_start = token_offset
+                token_end = token_start + len(token_text)
+                token_offset = token_end
+
+                await conn.execute(
+                    """
+                    INSERT INTO w_article_text_authorship (
+                        id, target_id, article_id, source_query_id, source_query_kind,
+                        revision_id, editor_id, token_text, token_id, token_start, token_end,
+                        introduced_revision_id, in_revision_ids, out_revision_ids, created_at
+                    )
+                    VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                        $12, $13::jsonb, $14::jsonb, $15
+                    )
+                    ON CONFLICT (article_id, revision_id, token_id) DO UPDATE SET
+                        target_id = EXCLUDED.target_id,
+                        source_query_id = EXCLUDED.source_query_id,
+                        source_query_kind = EXCLUDED.source_query_kind,
+                        editor_id = EXCLUDED.editor_id,
+                        token_text = EXCLUDED.token_text,
+                        token_start = EXCLUDED.token_start,
+                        token_end = EXCLUDED.token_end,
+                        introduced_revision_id = EXCLUDED.introduced_revision_id,
+                        in_revision_ids = EXCLUDED.in_revision_ids,
+                        out_revision_ids = EXCLUDED.out_revision_ids
+                    """,
+                    stable_row_id("w_article_text_authorship", target.target_id, revision_id_value, token_id),
+                    target.target_id,
+                    article_id,
+                    api_query_id,
+                    source_query_kind,
+                    revision_id_value,
+                    editor_id,
+                    token_text,
+                    token_id,
+                    token_start,
+                    token_end,
+                    int(token["o_rev_id"]) if token.get("o_rev_id") is not None else None,
+                    json.dumps(token.get("in", [])),
+                    json.dumps(token.get("out", [])),
+                    now,
+                )
+                stored_tokens += 1
+    finally:
+        await conn.close()
+
+    return ArticleAuthorshipPersistenceResult(
+        article_id=article_id,
+        static_build_id=static_build_id,
+        api_query_id=api_query_id,
+        revision_id=revision_id_value,
+        tokens_count=stored_tokens,
+        editors_count=len(editor_ids),
+    )
+
+
+async def upsert_wikiwho_editor(
+    conn: asyncpg.Connection,
+    *,
+    target: StaticTargetRecord,
+    editor_reference: str,
+    now: datetime,
+) -> str:
+    editor_name = wikiwho_editor_name(editor_reference)
+    existing = await conn.fetchrow(
+        "SELECT id FROM w_editors WHERE lang = $1 AND editor_name = $2",
+        target.lang,
+        editor_name,
+    )
+
+    if existing:
+        editor_id = existing["id"]
+        await conn.execute(
+            """
+            UPDATE w_editors
+            SET updated_at = $1
+            WHERE id = $2
+            """,
+            now,
+            editor_id,
+        )
+        return editor_id
+
+    editor_id = wikiwho_editor_id(target.lang, editor_reference)
+    await conn.execute(
+        """
+        INSERT INTO w_editors (
+            id, lang, editor_name, editor_page_url, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $5)
+        ON CONFLICT (id) DO UPDATE SET
+            updated_at = EXCLUDED.updated_at
+        """,
+        editor_id,
+        target.lang,
+        editor_name,
+        wikiwho_editor_page_url(target, editor_reference),
+        now,
+    )
+    return editor_id

@@ -7,6 +7,7 @@ from typing import Awaitable, Callable, Literal
 import httpx
 
 from wikimedia_search.apis.w_article_editors import summarize_article_editors
+from wikimedia_search.apis.w_article_authorship import fetch_article_authorship
 from wikimedia_search.apis.w_article_pageviews import fetch_article_pageviews
 from wikimedia_search.apis.w_article_parse import fetch_article_parse
 from wikimedia_search.apis.w_article_revisions import fetch_article_revisions
@@ -16,6 +17,7 @@ from wikimedia_search.db import (
     DatabaseNotConfiguredError,
     persist_article_identity,
     persist_article_parse,
+    persist_article_authorship,
     persist_article_revisions,
 )
 from wikimedia_search.resolver import WIKIMEDIA_USER_AGENT
@@ -241,9 +243,28 @@ StepRunner = Callable[[StaticTargetRecord, httpx.AsyncClient], Awaitable[StaticB
 
 
 async def run_article_authorship(target: StaticTargetRecord, client: httpx.AsyncClient) -> StaticBuildStepResult:
-    return await run_not_implemented(
-        "article_authorship",
-        "WikiWho text-authorship connector is not implemented yet.",
+    authorship = await fetch_article_authorship(
+        lang=target.lang,
+        page_id=target.article_metadata.page_id,
+        client=client,
+    )
+
+    try:
+        persistence = await persist_article_authorship(target, authorship)
+    except DatabaseNotConfiguredError as error:
+        raise StaticBuildStepError(str(error)) from error
+    except Exception as error:
+        raise StaticBuildStepError(f"Database persistence failed during article text authorship: {error}.") from error
+
+    return StaticBuildStepResult(
+        step_id="article_authorship",
+        status="success",
+        message=(
+            "Stored WikiWho current revision text authorship "
+            f"revision_id={persistence.revision_id or 'unknown'}, "
+            f"tokens={persistence.tokens_count}, editors={persistence.editors_count}, "
+            f"api_query_id={persistence.api_query_id}."
+        ),
     )
 
 
