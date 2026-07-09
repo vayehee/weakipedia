@@ -14,6 +14,7 @@ import asyncpg
 from wikimedia_search.apis.w_article_parse import ArticleParsePayload
 from wikimedia_search.apis.w_article_revisions import ArticleRevisionsPayload
 from wikimedia_search.apis.w_article_authorship import ArticleAuthorshipPayload
+from wikimedia_search.apis.wdata_item import WikidataEntityPayload
 from wikimedia_search.static_targets import StaticTargetRecord
 
 
@@ -60,6 +61,19 @@ class ArticleAuthorshipPersistenceResult:
     revision_id: int | None
     tokens_count: int
     editors_count: int
+
+
+@dataclass(frozen=True)
+class WikidataEntityPersistenceResult:
+    article_id: str
+    wikidata_item_id: str
+    static_build_id: str
+    api_query_id: str
+    labels_count: int
+    descriptions_count: int
+    sitelinks_count: int
+    claim_groups_count: int
+    claims_count: int
 
 
 _schema_ready = False
@@ -280,6 +294,61 @@ async def ensure_schema(conn: asyncpg.Connection) -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             UNIQUE(article_id, revision_id, token_id)
         );
+
+        CREATE TABLE IF NOT EXISTS wdata_item_labels (
+            id TEXT PRIMARY KEY,
+            wdata_item_id TEXT NOT NULL REFERENCES wdata_items(id),
+            source_query_id TEXT NOT NULL REFERENCES api_queries(id),
+            source_query_kind TEXT NOT NULL,
+            language TEXT NOT NULL,
+            label TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(wdata_item_id, language)
+        );
+
+        CREATE TABLE IF NOT EXISTS wdata_item_descriptions (
+            id TEXT PRIMARY KEY,
+            wdata_item_id TEXT NOT NULL REFERENCES wdata_items(id),
+            source_query_id TEXT NOT NULL REFERENCES api_queries(id),
+            source_query_kind TEXT NOT NULL,
+            language TEXT NOT NULL,
+            description TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(wdata_item_id, language)
+        );
+
+        CREATE TABLE IF NOT EXISTS wdata_item_sitelinks (
+            id TEXT PRIMARY KEY,
+            wdata_item_id TEXT NOT NULL REFERENCES wdata_items(id),
+            source_query_id TEXT NOT NULL REFERENCES api_queries(id),
+            source_query_kind TEXT NOT NULL,
+            site TEXT NOT NULL,
+            title TEXT NOT NULL,
+            badges JSONB,
+            url TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(wdata_item_id, site)
+        );
+
+        CREATE TABLE IF NOT EXISTS wdata_item_claims (
+            id TEXT PRIMARY KEY,
+            wdata_item_id TEXT NOT NULL REFERENCES wdata_items(id),
+            source_query_id TEXT NOT NULL REFERENCES api_queries(id),
+            source_query_kind TEXT NOT NULL,
+            property_id TEXT NOT NULL,
+            claim_id TEXT NOT NULL,
+            rank TEXT,
+            mainsnak_json JSONB,
+            qualifiers_json JSONB,
+            references_json JSONB,
+            claim_json JSONB NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(wdata_item_id, claim_id)
+        );
         """
     )
     _schema_ready = True
@@ -291,6 +360,18 @@ def article_id_for(target: StaticTargetRecord) -> str:
 
 def wikidata_url(qid: str) -> str:
     return f"https://www.wikidata.org/wiki/{qid}"
+
+
+def wikidata_label(entity: dict, language: str = "en") -> str | None:
+    label = entity.get("labels", {}).get(language, {})
+    value = label.get("value") if isinstance(label, dict) else None
+    return str(value) if value else None
+
+
+def wikidata_description(entity: dict, language: str = "en") -> str | None:
+    description = entity.get("descriptions", {}).get(language, {})
+    value = description.get("value") if isinstance(description, dict) else None
+    return str(value) if value else None
 
 
 def public_route_for(target: StaticTargetRecord) -> str:
@@ -1025,3 +1106,235 @@ async def upsert_wikiwho_editor(
         now,
     )
     return editor_id
+
+
+async def persist_wikidata_entity(
+    target: StaticTargetRecord,
+    entity_payload: WikidataEntityPayload,
+) -> WikidataEntityPersistenceResult:
+    article_id = article_id_for(target)
+    wikidata_item_id = entity_payload.qid
+    entity = entity_payload.entity
+    static_build_id = static_build_id_for(target)
+    api_query_id = f"api_query:{uuid4()}"
+    now = datetime.now(UTC)
+    source_query_kind = "api_queries"
+    claims_count = 0
+
+    if not entity or entity.get("missing"):
+        raise ValueError(f"Wikidata entity {entity_payload.qid} was missing from the response.")
+
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+
+        async with conn.transaction():
+            await conn.execute(
+                """
+                INSERT INTO api_queries (
+                    id, static_build_id, source_type, request_url, http_status,
+                    response_json, fetched_at, status
+                )
+                VALUES ($1, $2, 'wdata_item', $3, 200, $4::jsonb, $5, 'success')
+                """,
+                api_query_id,
+                static_build_id,
+                entity_payload.request_url,
+                json.dumps(entity_payload.raw_json),
+                now,
+            )
+
+            await conn.execute(
+                """
+                INSERT INTO wdata_items (
+                    id, qid, label, description, canonical_url, created_at, updated_at
+                )
+                VALUES ($1, $1, $2, $3, $4, $5, $5)
+                ON CONFLICT (qid) DO UPDATE SET
+                    label = EXCLUDED.label,
+                    description = EXCLUDED.description,
+                    canonical_url = EXCLUDED.canonical_url,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                wikidata_item_id,
+                wikidata_label(entity),
+                wikidata_description(entity),
+                wikidata_url(wikidata_item_id),
+                now,
+            )
+
+            await conn.execute(
+                """
+                UPDATE w_articles
+                SET wikidata_item_id = $1, wikidata_qid = $1, updated_at = $2
+                WHERE id = $3
+                """,
+                wikidata_item_id,
+                now,
+                article_id,
+            )
+
+            await conn.execute(
+                "DELETE FROM wdata_item_claims WHERE wdata_item_id = $1",
+                wikidata_item_id,
+            )
+            await conn.execute(
+                "DELETE FROM wdata_item_sitelinks WHERE wdata_item_id = $1",
+                wikidata_item_id,
+            )
+            await conn.execute(
+                "DELETE FROM wdata_item_descriptions WHERE wdata_item_id = $1",
+                wikidata_item_id,
+            )
+            await conn.execute(
+                "DELETE FROM wdata_item_labels WHERE wdata_item_id = $1",
+                wikidata_item_id,
+            )
+
+            for language, label in entity.get("labels", {}).items():
+                value = label.get("value") if isinstance(label, dict) else None
+                if not value:
+                    continue
+
+                await conn.execute(
+                    """
+                    INSERT INTO wdata_item_labels (
+                        id, wdata_item_id, source_query_id, source_query_kind,
+                        language, label, created_at, updated_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+                    ON CONFLICT (wdata_item_id, language) DO UPDATE SET
+                        source_query_id = EXCLUDED.source_query_id,
+                        source_query_kind = EXCLUDED.source_query_kind,
+                        label = EXCLUDED.label,
+                        updated_at = EXCLUDED.updated_at
+                    """,
+                    stable_row_id("wdata_label", wikidata_item_id, language),
+                    wikidata_item_id,
+                    api_query_id,
+                    source_query_kind,
+                    language,
+                    str(value),
+                    now,
+                )
+
+            for language, description in entity.get("descriptions", {}).items():
+                value = description.get("value") if isinstance(description, dict) else None
+                if not value:
+                    continue
+
+                await conn.execute(
+                    """
+                    INSERT INTO wdata_item_descriptions (
+                        id, wdata_item_id, source_query_id, source_query_kind,
+                        language, description, created_at, updated_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+                    ON CONFLICT (wdata_item_id, language) DO UPDATE SET
+                        source_query_id = EXCLUDED.source_query_id,
+                        source_query_kind = EXCLUDED.source_query_kind,
+                        description = EXCLUDED.description,
+                        updated_at = EXCLUDED.updated_at
+                    """,
+                    stable_row_id("wdata_description", wikidata_item_id, language),
+                    wikidata_item_id,
+                    api_query_id,
+                    source_query_kind,
+                    language,
+                    str(value),
+                    now,
+                )
+
+            for site, sitelink in entity.get("sitelinks", {}).items():
+                if not isinstance(sitelink, dict):
+                    continue
+
+                title = sitelink.get("title")
+                if not title:
+                    continue
+
+                await conn.execute(
+                    """
+                    INSERT INTO wdata_item_sitelinks (
+                        id, wdata_item_id, source_query_id, source_query_kind,
+                        site, title, badges, url, created_at, updated_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $9)
+                    ON CONFLICT (wdata_item_id, site) DO UPDATE SET
+                        source_query_id = EXCLUDED.source_query_id,
+                        source_query_kind = EXCLUDED.source_query_kind,
+                        title = EXCLUDED.title,
+                        badges = EXCLUDED.badges,
+                        url = EXCLUDED.url,
+                        updated_at = EXCLUDED.updated_at
+                    """,
+                    stable_row_id("wdata_sitelink", wikidata_item_id, site),
+                    wikidata_item_id,
+                    api_query_id,
+                    source_query_kind,
+                    site,
+                    str(title),
+                    json.dumps(sitelink.get("badges", [])),
+                    sitelink.get("url"),
+                    now,
+                )
+
+            for property_id, property_claims in entity.get("claims", {}).items():
+                if not isinstance(property_claims, list):
+                    continue
+
+                for index, claim in enumerate(property_claims):
+                    if not isinstance(claim, dict):
+                        continue
+
+                    claim_id = str(claim.get("id") or f"{property_id}:{index}")
+                    await conn.execute(
+                        """
+                        INSERT INTO wdata_item_claims (
+                            id, wdata_item_id, source_query_id, source_query_kind,
+                            property_id, claim_id, rank, mainsnak_json, qualifiers_json,
+                            references_json, claim_json, created_at, updated_at
+                        )
+                        VALUES (
+                            $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb,
+                            $10::jsonb, $11::jsonb, $12, $12
+                        )
+                        ON CONFLICT (wdata_item_id, claim_id) DO UPDATE SET
+                            source_query_id = EXCLUDED.source_query_id,
+                            source_query_kind = EXCLUDED.source_query_kind,
+                            property_id = EXCLUDED.property_id,
+                            rank = EXCLUDED.rank,
+                            mainsnak_json = EXCLUDED.mainsnak_json,
+                            qualifiers_json = EXCLUDED.qualifiers_json,
+                            references_json = EXCLUDED.references_json,
+                            claim_json = EXCLUDED.claim_json,
+                            updated_at = EXCLUDED.updated_at
+                        """,
+                        stable_row_id("wdata_claim", wikidata_item_id, claim_id),
+                        wikidata_item_id,
+                        api_query_id,
+                        source_query_kind,
+                        property_id,
+                        claim_id,
+                        claim.get("rank"),
+                        json.dumps(claim.get("mainsnak")),
+                        json.dumps(claim.get("qualifiers")),
+                        json.dumps(claim.get("references")),
+                        json.dumps(claim),
+                        now,
+                    )
+                    claims_count += 1
+    finally:
+        await conn.close()
+
+    return WikidataEntityPersistenceResult(
+        article_id=article_id,
+        wikidata_item_id=wikidata_item_id,
+        static_build_id=static_build_id,
+        api_query_id=api_query_id,
+        labels_count=entity_payload.labels_count,
+        descriptions_count=entity_payload.descriptions_count,
+        sitelinks_count=entity_payload.sitelinks_count,
+        claim_groups_count=entity_payload.claim_groups_count,
+        claims_count=claims_count,
+    )

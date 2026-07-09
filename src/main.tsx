@@ -117,6 +117,10 @@ const STATIC_BUILD_STEPS = [
     label: "Attributing current article revision text to contributing editors...",
   },
   {
+    id: "wikidata_entity",
+    label: "Processing associated Wikidata entity labels, descriptions, sitelinks, and claims...",
+  },
+  {
     id: "pageviews_human",
     label: "Measuring human readership over time...",
   },
@@ -155,10 +159,6 @@ const STATIC_BUILD_STEPS = [
   {
     id: "claim_sources",
     label: "Mapping claims to citations and external source material...",
-  },
-  {
-    id: "wikidata_entity",
-    label: "Processing associated Wikidata entity labels, descriptions, sitelinks, and claims...",
   },
   {
     id: "google_trends",

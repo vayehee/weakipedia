@@ -19,6 +19,7 @@ from wikimedia_search.db import (
     persist_article_parse,
     persist_article_authorship,
     persist_article_revisions,
+    persist_wikidata_entity,
 )
 from wikimedia_search.resolver import WIKIMEDIA_USER_AGENT
 from wikimedia_search.static_targets import StaticTargetRecord
@@ -224,14 +225,25 @@ async def run_wikidata_entity(target: StaticTargetRecord, client: httpx.AsyncCli
         )
 
     entity = await fetch_wikidata_entity(qid=qid, client=client)
-    raise stuck_after_fetch(
-        fetched=(
-            f"Wikidata entity {qid}: labels={entity.labels_count}, "
-            f"descriptions={entity.descriptions_count}, sitelinks={entity.sitelinks_count}, "
-            f"claim_groups={entity.claim_groups_count}"
+
+    try:
+        persistence = await persist_wikidata_entity(target, entity)
+    except DatabaseNotConfiguredError as error:
+        raise StaticBuildStepError(str(error)) from error
+    except Exception as error:
+        raise StaticBuildStepError(f"Database persistence failed during Wikidata entity processing: {error}.") from error
+
+    return StaticBuildStepResult(
+        step_id="wikidata_entity",
+        status="success",
+        message=(
+            f"Stored Wikidata entity {qid}: labels={persistence.labels_count}, "
+            f"descriptions={persistence.descriptions_count}, "
+            f"sitelinks={persistence.sitelinks_count}, "
+            f"claim_groups={persistence.claim_groups_count}, "
+            f"claims={persistence.claims_count}, "
+            f"api_query_id={persistence.api_query_id}."
         ),
-        stuck_at="Wikidata normalization and persistence",
-        next_fix="write wdata_items, link w_articles.wikidata_item_id, and persist selected labels, sitelinks, and claims",
     )
 
 
