@@ -14,6 +14,7 @@ import asyncpg
 from wikimedia_search.apis.w_article_parse import ArticleParsePayload
 from wikimedia_search.apis.w_article_revisions import ArticleRevisionsPayload
 from wikimedia_search.apis.w_article_authorship import ArticleAuthorshipPayload
+from wikimedia_search.apis.w_article_traffic import ArticleTrafficPayload, TrafficDirection
 from wikimedia_search.apis.wdata_item import WikidataEntityPayload
 from wikimedia_search.static_targets import StaticTargetRecord
 
@@ -74,6 +75,18 @@ class WikidataEntityPersistenceResult:
     sitelinks_count: int
     claim_groups_count: int
     claims_count: int
+
+
+@dataclass(frozen=True)
+class ArticleTrafficPersistenceResult:
+    article_id: str
+    static_build_id: str
+    api_query_id: str
+    direction: str
+    month: str | None
+    records_count: int
+    source_status: str
+    http_status: int
 
 
 @dataclass(frozen=True)
@@ -302,6 +315,22 @@ async def ensure_schema(conn: asyncpg.Connection) -> None:
             UNIQUE(article_id, revision_id, token_id)
         );
 
+        CREATE TABLE IF NOT EXISTS w_article_traffic (
+            id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL REFERENCES targets(id),
+            article_id TEXT NOT NULL REFERENCES w_articles(id),
+            source_query_id TEXT NOT NULL REFERENCES api_queries(id),
+            source_query_kind TEXT NOT NULL,
+            month TEXT,
+            direction TEXT NOT NULL,
+            title TEXT NOT NULL,
+            views INTEGER,
+            title_type TEXT,
+            url TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(target_id, article_id, month, direction, title)
+        );
+
         CREATE TABLE IF NOT EXISTS wdata_item_labels (
             id TEXT PRIMARY KEY,
             wdata_item_id TEXT NOT NULL REFERENCES wdata_items(id),
@@ -413,6 +442,31 @@ def template_title(template: dict) -> str | None:
 
 def linked_wikipedia_url(target: StaticTargetRecord, title: str) -> str:
     return f"https://{target.article_metadata.host}/wiki/{quote(title.replace(' ', '_'), safe='_:()')}"
+
+
+def traffic_direction_value(direction: TrafficDirection) -> str:
+    return "in" if direction == "sources" else "out"
+
+
+def traffic_source_type(direction: TrafficDirection) -> str:
+    return "w_article_traffic_incoming" if direction == "sources" else "w_article_traffic_outgoing"
+
+
+def traffic_title_type(title: str) -> str:
+    if title.startswith("other-"):
+        return title
+
+    if ":" in title:
+        return "namespace"
+
+    return "article"
+
+
+def traffic_title_url(target: StaticTargetRecord, title: str) -> str | None:
+    if title.startswith("other-"):
+        return None
+
+    return linked_wikipedia_url(target, title)
 
 
 def normalized_external_url(url: str) -> str:
@@ -699,6 +753,70 @@ async def get_existing_wikidata_entity(target: StaticTargetRecord) -> StaticStep
         return None
 
     return result if result.counts["items_count"] > 0 and result.counts["claims_count"] > 0 else None
+
+
+async def get_existing_article_traffic(
+    target: StaticTargetRecord,
+    *,
+    direction: TrafficDirection,
+) -> StaticStepCacheResult | None:
+    article_id = article_id_for(target)
+    static_build_id = static_build_id_for(target)
+    source_type = traffic_source_type(direction)
+    direction_value = traffic_direction_value(direction)
+
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+        row = await conn.fetchrow(
+            """
+            SELECT
+                (SELECT count(*)
+                 FROM w_article_traffic
+                 WHERE target_id = $1 AND article_id = $2 AND direction = $3) AS traffic_records_count,
+                (SELECT count(*)
+                 FROM api_queries
+                 WHERE static_build_id = $4 AND source_type = $5 AND status IN ('success', 'success_no_data')) AS api_queries_count,
+                (SELECT max(month)
+                 FROM w_article_traffic
+                 WHERE target_id = $1 AND article_id = $2 AND direction = $3) AS month,
+                (SELECT status
+                 FROM api_queries
+                 WHERE static_build_id = $4 AND source_type = $5 AND status IN ('success', 'success_no_data')
+                 ORDER BY fetched_at DESC
+                 LIMIT 1) AS source_status,
+                (SELECT http_status
+                 FROM api_queries
+                 WHERE static_build_id = $4 AND source_type = $5 AND status IN ('success', 'success_no_data')
+                 ORDER BY fetched_at DESC
+                 LIMIT 1) AS http_status,
+                (
+                    SELECT min(created_at)
+                    FROM (
+                        SELECT created_at
+                        FROM w_article_traffic
+                        WHERE target_id = $1 AND article_id = $2 AND direction = $3
+                        UNION ALL
+                        SELECT fetched_at AS created_at
+                        FROM api_queries
+                        WHERE static_build_id = $4 AND source_type = $5 AND status IN ('success', 'success_no_data')
+                    ) AS existing_records
+                ) AS earliest_record_at
+            """,
+            target.target_id,
+            article_id,
+            direction_value,
+            static_build_id,
+            source_type,
+        )
+    finally:
+        await conn.close()
+
+    return cache_result_from_row(
+        row,
+        count_fields=("traffic_records_count", "api_queries_count"),
+        detail_fields=("month", "source_status", "http_status"),
+    )
 
 
 async def persist_article_identity(
@@ -1288,6 +1406,121 @@ async def persist_article_authorship(
         revision_id=revision_id_value,
         tokens_count=stored_tokens,
         editors_count=len(editor_ids),
+    )
+
+
+async def persist_article_traffic(
+    target: StaticTargetRecord,
+    traffic: ArticleTrafficPayload,
+) -> ArticleTrafficPersistenceResult:
+    article_id = article_id_for(target)
+    static_build_id = static_build_id_for(target)
+    api_query_id = f"api_query:{uuid4()}"
+    now = datetime.now(UTC)
+    source_query_kind = "api_queries"
+    direction_value = traffic_direction_value(traffic.direction)
+    source_type = traffic_source_type(traffic.direction)
+    status = "success" if traffic.source_status == "success" else "success_no_data"
+    response_json = traffic.raw_json if traffic.raw_json else {
+        "source": "wikinav",
+        "source_status": traffic.source_status,
+        "direction": traffic.direction,
+        "title": traffic.title,
+        "error_text": traffic.error_text,
+    }
+    error_message = (
+        None
+        if traffic.source_status == "success"
+        else "Wikinav returned HTTP 404; stored as no traffic data available for this direction."
+    )
+
+    conn = await connect()
+    try:
+        await ensure_schema(conn)
+
+        async with conn.transaction():
+            await conn.execute(
+                """
+                INSERT INTO api_queries (
+                    id, static_build_id, source_type, request_url, http_status,
+                    response_json, fetched_at, status, error_message
+                )
+                VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+                """,
+                api_query_id,
+                static_build_id,
+                source_type,
+                traffic.request_url,
+                traffic.http_status,
+                json.dumps(response_json),
+                now,
+                status,
+                error_message,
+            )
+
+            if traffic.source_status == "success":
+                await conn.execute(
+                    """
+                    DELETE FROM w_article_traffic
+                    WHERE target_id = $1 AND article_id = $2 AND direction = $3
+                    """,
+                    target.target_id,
+                    article_id,
+                    direction_value,
+                )
+
+                for result in traffic.results:
+                    title = str(result.get("title") or "")
+                    if not title:
+                        continue
+
+                    views = result.get("views")
+                    await conn.execute(
+                        """
+                        INSERT INTO w_article_traffic (
+                            id, target_id, article_id, source_query_id, source_query_kind,
+                            month, direction, title, views, title_type, url, created_at
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                        ON CONFLICT (target_id, article_id, month, direction, title) DO UPDATE SET
+                            source_query_id = EXCLUDED.source_query_id,
+                            source_query_kind = EXCLUDED.source_query_kind,
+                            views = EXCLUDED.views,
+                            title_type = EXCLUDED.title_type,
+                            url = EXCLUDED.url
+                        """,
+                        stable_row_id(
+                            "w_article_traffic",
+                            target.target_id,
+                            article_id,
+                            traffic.month,
+                            direction_value,
+                            title,
+                        ),
+                        target.target_id,
+                        article_id,
+                        api_query_id,
+                        source_query_kind,
+                        traffic.month,
+                        direction_value,
+                        title,
+                        int(views) if views is not None else None,
+                        traffic_title_type(title),
+                        traffic_title_url(target, title),
+                        now,
+                    )
+    finally:
+        await conn.close()
+
+    return ArticleTrafficPersistenceResult(
+        article_id=article_id,
+        static_build_id=static_build_id,
+        api_query_id=api_query_id,
+        direction=direction_value,
+        month=traffic.month,
+        records_count=len(traffic.results) if traffic.source_status == "success" else 0,
+        source_status=status,
+        http_status=traffic.http_status,
     )
 
 

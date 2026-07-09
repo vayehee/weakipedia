@@ -121,6 +121,10 @@ const STATIC_BUILD_STEPS = [
     label: "Processing associated Wikidata entity labels, descriptions, sitelinks, and claims...",
   },
   {
+    id: "traffic_outgoing",
+    label: "Mapping outgoing traffic pathways from the article...",
+  },
+  {
     id: "pageviews_human",
     label: "Measuring human readership over time...",
   },
@@ -143,10 +147,6 @@ const STATIC_BUILD_STEPS = [
   {
     id: "traffic_incoming",
     label: "Mapping incoming traffic pathways to the article...",
-  },
-  {
-    id: "traffic_outgoing",
-    label: "Mapping outgoing traffic pathways from the article...",
   },
   {
     id: "editor_summary",

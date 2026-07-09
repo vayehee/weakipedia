@@ -20,11 +20,13 @@ from wikimedia_search.db import (
     get_existing_article_identity,
     get_existing_article_parse,
     get_existing_article_revisions,
+    get_existing_article_traffic,
     get_existing_wikidata_entity,
     persist_article_identity,
     persist_article_parse,
     persist_article_authorship,
     persist_article_revisions,
+    persist_article_traffic,
     persist_wikidata_entity,
 )
 from wikimedia_search.resolver import WIKIMEDIA_USER_AGENT
@@ -233,21 +235,56 @@ async def run_traffic(
     direction: Literal["sources", "destinations"],
     step_id: str,
 ) -> StaticBuildStepResult:
+    existing = await get_existing_article_traffic(target, direction=direction)
+    direction_label = "incoming" if direction == "sources" else "outgoing"
+    if existing:
+        return StaticBuildStepResult(
+            step_id=step_id,
+            status="success",
+            message=(
+                f"Reused stored Wikinav {direction_label} traffic state: "
+                f"records={existing.counts['traffic_records_count']}, "
+                f"api_queries={existing.counts['api_queries_count']}, "
+                f"month={existing.details.get('month') or 'none'}, "
+                f"source_status={existing.details.get('source_status') or 'unknown'}, "
+                f"http_status={existing.details.get('http_status') or 'unknown'}, "
+                f"earliest_record_at={earliest_record_at(existing)}."
+            ),
+        )
+
     traffic = await fetch_article_traffic(
         lang=target.lang,
         title_slug=target.title_slug,
         direction=direction,
         client=client,
     )
-    raise stuck_after_fetch(
-        fetched=(
-            f"{len(traffic.results)} Wikinav {direction} records for month={traffic.month}, "
-            f"total_count={traffic.total_count if traffic.total_count is not None else 'unknown'}"
-        ),
-        stuck_at="traffic normalization and persistence",
-        next_fix=(
-            "write w_article_traffic rows preserving source fields month, title, and views; "
-            "derive direction, title_type, and optional url"
+
+    try:
+        persistence = await persist_article_traffic(target, traffic)
+    except DatabaseNotConfiguredError as error:
+        raise StaticBuildStepError(str(error)) from error
+    except Exception as error:
+        raise StaticBuildStepError(f"Database persistence failed during article traffic: {error}.") from error
+
+    if persistence.source_status == "success_no_data":
+        return StaticBuildStepResult(
+            step_id=step_id,
+            status="success",
+            message=(
+                f"Stored Wikinav {direction_label} traffic no-data state: "
+                f"source_status={persistence.source_status}, http_status={persistence.http_status}, "
+                f"records=0, api_query_id={persistence.api_query_id}."
+            ),
+        )
+
+    return StaticBuildStepResult(
+        step_id=step_id,
+        status="success",
+        message=(
+            f"Stored {persistence.records_count} Wikinav {direction_label} traffic records "
+            f"for month={persistence.month or 'unknown'}, "
+            f"total_count={traffic.total_count if traffic.total_count is not None else 'unknown'}, "
+            f"api_query_id={persistence.api_query_id}."
         ),
     )
 
