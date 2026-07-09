@@ -125,6 +125,10 @@ const STATIC_BUILD_STEPS = [
     label: "Mapping outgoing traffic pathways from the article...",
   },
   {
+    id: "traffic_incoming",
+    label: "Mapping incoming traffic pathways to the article...",
+  },
+  {
     id: "pageviews_human",
     label: "Measuring human readership over time...",
   },
@@ -143,10 +147,6 @@ const STATIC_BUILD_STEPS = [
   {
     id: "pageviews_automated",
     label: "Measuring machine access patterns...",
-  },
-  {
-    id: "traffic_incoming",
-    label: "Mapping incoming traffic pathways to the article...",
   },
   {
     id: "editor_summary",
